@@ -1,0 +1,107 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Flugplatz hinzufügen",
+        "description": "ICAO-Code des Flugplatzes, z. B. EDAH oder EDBM.",
+        "data": {
+          "icao": "ICAO-Code"
+        }
+      },
+      "details": {
+        "title": "{icao} einrichten",
+        "description": "Flugplatz {found}. Wähle die nächste METAR- und TAF-Station und dein GAFOR-Gebiet. Die Ampel bewertet nur Stunden zwischen Sonnenauf- und -untergang. Sie ersetzt keine Flugvorbereitung.",
+        "data": {
+          "name": "Name",
+          "latitude": "Breitengrad",
+          "longitude": "Längengrad",
+          "runway": "Bahnrichtung (kleinere Nummer, z. B. 90 für 09/27)",
+          "metar_station": "METAR-Station",
+          "taf_station": "TAF-Station",
+          "gafor_region": "GAFOR-Gebiet"
+        }
+      }
+    },
+    "error": {
+      "invalid_icao": "Bitte einen gültigen ICAO-Code eingeben (3–4 Zeichen)."
+    },
+    "abort": {
+      "already_configured": "Dieser Flugplatz ist schon eingerichtet."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Einstellungen",
+        "menu_options": {
+          "limits": "Grenzwerte der Ampel",
+          "airfield": "Flugplatz und Stationen"
+        }
+      },
+      "limits": {
+        "title": "Grenzwerte",
+        "description": "Gelb = eingeschränkt, Rot = kein Flugwetter.",
+        "data": {
+          "xw_warn": "Seitenwind gelb ab",
+          "xw_limit": "Seitenwind rot ab",
+          "wind_warn": "Wind gelb ab",
+          "wind_limit": "Wind rot ab",
+          "gust_warn": "Böen gelb ab",
+          "gust_limit": "Böen rot ab",
+          "gust_spread_warn": "Böigkeit (Böe minus Wind) gelb ab",
+          "ceil_warn": "Wolkenuntergrenze gelb unter",
+          "ceil_limit": "Wolkenuntergrenze rot unter",
+          "vis_warn": "Sicht gelb unter",
+          "vis_limit": "Sicht rot unter",
+          "precip_warn": "Niederschlag gelb ab",
+          "precip_limit": "Niederschlag rot ab"
+        }
+      },
+      "airfield": {
+        "title": "Flugplatz und Stationen",
+        "data": {
+          "latitude": "Breitengrad",
+          "longitude": "Längengrad",
+          "runway": "Bahnrichtung (kleinere Nummer, z. B. 90 für 09/27)",
+          "metar_station": "METAR-Station",
+          "taf_station": "TAF-Station",
+          "gafor_region": "GAFOR-Gebiet"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "flugtag_heute": {
+        "name": "Flugtag heute",
+        "state": {
+          "gut": "Guter Flugtag",
+          "eingeschraenkt": "Eingeschränkt",
+          "schlecht": "Kein Flugwetter",
+          "keine_daten": "Keine Daten"
+        }
+      },
+      "flugtag_morgen": {
+        "name": "Flugtag morgen",
+        "state": {
+          "gut": "Guter Flugtag",
+          "eingeschraenkt": "Eingeschränkt",
+          "schlecht": "Kein Flugwetter",
+          "keine_daten": "Keine Daten"
+        }
+      },
+      "metar": {
+        "name": "METAR"
+      },
+      "taf": {
+        "name": "TAF"
+      },
+      "gafor": {
+        "name": "GAFOR"
+      },
+      "seitenwind": {
+        "name": "Seitenwind aktuell"
+      }
+    }
+  }
+}

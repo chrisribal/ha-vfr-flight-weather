@@ -1,0 +1,6 @@
+{
+  "name": "Flugwetter",
+  "homeassistant": "2026.5.0",
+  "country": ["DE"],
+  "render_readme": true
+}

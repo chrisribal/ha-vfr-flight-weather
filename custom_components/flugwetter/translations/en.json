@@ -1,0 +1,107 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Add airfield",
+        "description": "ICAO code of the airfield, e.g. EDAH.",
+        "data": {
+          "icao": "ICAO code"
+        }
+      },
+      "details": {
+        "title": "Set up {icao}",
+        "description": "Airfield {found}. Choose the nearest METAR and TAF station and your GAFOR region. This is guidance only and does not replace a pre-flight briefing.",
+        "data": {
+          "name": "Name",
+          "latitude": "Latitude",
+          "longitude": "Longitude",
+          "runway": "Runway heading (lower number, e.g. 90 for 09/27)",
+          "metar_station": "METAR station",
+          "taf_station": "TAF station",
+          "gafor_region": "GAFOR region"
+        }
+      }
+    },
+    "error": {
+      "invalid_icao": "Please enter a valid ICAO code."
+    },
+    "abort": {
+      "already_configured": "This airfield is already configured."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "Settings",
+        "menu_options": {
+          "limits": "Traffic light limits",
+          "airfield": "Airfield and stations"
+        }
+      },
+      "limits": {
+        "title": "Limits",
+        "description": "Amber = limited, red = no flying weather.",
+        "data": {
+          "xw_warn": "Crosswind amber from",
+          "xw_limit": "Crosswind red from",
+          "wind_warn": "Wind amber from",
+          "wind_limit": "Wind red from",
+          "gust_warn": "Gusts amber from",
+          "gust_limit": "Gusts red from",
+          "gust_spread_warn": "Gust spread amber from",
+          "ceil_warn": "Ceiling amber below",
+          "ceil_limit": "Ceiling red below",
+          "vis_warn": "Visibility amber below",
+          "vis_limit": "Visibility red below",
+          "precip_warn": "Precipitation amber from",
+          "precip_limit": "Precipitation red from"
+        }
+      },
+      "airfield": {
+        "title": "Airfield and stations",
+        "data": {
+          "latitude": "Latitude",
+          "longitude": "Longitude",
+          "runway": "Runway heading (lower number, e.g. 90 for 09/27)",
+          "metar_station": "METAR station",
+          "taf_station": "TAF station",
+          "gafor_region": "GAFOR region"
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "flugtag_heute": {
+        "name": "Flying day today",
+        "state": {
+          "gut": "Good flying day",
+          "eingeschraenkt": "Limited",
+          "schlecht": "No flying weather",
+          "keine_daten": "No data"
+        }
+      },
+      "flugtag_morgen": {
+        "name": "Flying day tomorrow",
+        "state": {
+          "gut": "Good flying day",
+          "eingeschraenkt": "Limited",
+          "schlecht": "No flying weather",
+          "keine_daten": "No data"
+        }
+      },
+      "metar": {
+        "name": "METAR"
+      },
+      "taf": {
+        "name": "TAF"
+      },
+      "gafor": {
+        "name": "GAFOR"
+      },
+      "seitenwind": {
+        "name": "Current crosswind"
+      }
+    }
+  }
+}

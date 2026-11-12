@@ -1,0 +1,224 @@
+"""Sensoren der Flugwetter-Integration."""
+
+from __future__ import annotations
+
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime, timezone
+from typing import Any
+
+from homeassistant.components.sensor import (
+    SensorDeviceClass,
+    SensorEntity,
+    SensorEntityDescription,
+    SensorStateClass,
+)
+from homeassistant.const import UnitOfSpeed
+from homeassistant.core import HomeAssistant
+from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
+from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
+from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
+
+from .const import CONF_GAFOR_REGION, CONF_ICAO, CONF_METAR_STATION, DOMAIN, VERSION
+from .coordinator import FlugwetterConfigEntry, FlugwetterCoordinator, FlugwetterData
+from .evaluation import STATUS_OPTIONS, crosswind, day_keys, runway_designator
+
+PARALLEL_UPDATES = 0
+
+
+@dataclass(frozen=True, kw_only=True)
+class FlugwetterSensorDescription(SensorEntityDescription):
+    """Beschreibung mit Wert- und Attributfunktion."""
+
+    value_fn: Callable[[FlugwetterCoordinator, FlugwetterData], Any]
+    attr_fn: Callable[[FlugwetterCoordinator, FlugwetterData], dict[str, Any]] | None = None
+    unrecorded: frozenset[str] = frozenset()
+
+
+def _day_attrs(key: str) -> Callable[[FlugwetterCoordinator, FlugwetterData], dict[str, Any]]:
+    def fn(coord: FlugwetterCoordinator, data: FlugwetterData) -> dict[str, Any]:
+        summary = getattr(data, key)
+        today, tomorrow = day_keys(dt_util.now())
+        day = today if key == "today" else tomorrow
+        rows = [r.as_dict() for r in data.rows if r.d == day]
+        attrs: dict[str, Any] = {
+            "stufe": summary.get("stufe"),
+            "fenster": summary.get("fenster"),
+            "gruende": summary.get("gruende", []),
+            "gruen_stunden": summary.get("gruen_h", 0),
+            "stunden": rows,
+        }
+        if key == "today":
+            s = coord.settings
+            attrs.update(
+                {
+                    "icao": s.get(CONF_ICAO),
+                    "bahn_kurs": coord.runway,
+                    "bahnen": f"{runway_designator(coord.runway)}/{runway_designator(coord.runway + 180)}",
+                    "grenzwerte": coord.limits,
+                    "vorhersage_stand": data.forecast_time.isoformat() if data.forecast_time else None,
+                }
+            )
+        return attrs
+
+    return fn
+
+
+def _metar_attrs(coord: FlugwetterCoordinator, data: FlugwetterData) -> dict[str, Any]:
+    m = data.metar or {}
+    obs = m.get("obsTime")
+    return {
+        "station": m.get("icaoId") or coord.settings.get(CONF_METAR_STATION),
+        "stationsname": m.get("name"),
+        "beobachtet": datetime.fromtimestamp(obs, timezone.utc).isoformat() if isinstance(obs, (int, float)) else None,
+        "wind_richtung": m.get("wdir"),
+        "wind_kt": m.get("wspd"),
+        "boeen_kt": m.get("wgst"),
+        "sicht": m.get("visib"),
+        "wolken": m.get("clouds") or [],
+        "temperatur": m.get("temp"),
+        "taupunkt": m.get("dewp"),
+        "qnh": m.get("altim"),
+        "flugkategorie": m.get("fltCat"),
+    }
+
+
+def _crosswind_now(coord: FlugwetterCoordinator, data: FlugwetterData) -> float | None:
+    m = data.metar or {}
+    wd, ws = m.get("wdir"), m.get("wspd")
+    if ws is None:
+        return None
+    if not isinstance(wd, (int, float)):
+        return 0.0 if ws == 0 else None
+    xw, _hw, _act = crosswind(float(wd), float(ws), coord.runway)
+    return round(xw, 1)
+
+
+def _crosswind_attrs(coord: FlugwetterCoordinator, data: FlugwetterData) -> dict[str, Any]:
+    m = data.metar or {}
+    wd, ws, wg = m.get("wdir"), m.get("wspd"), m.get("wgst")
+    if not isinstance(wd, (int, float)) or ws is None:
+        return {}
+    _xw, hw, active = crosswind(float(wd), float(ws), coord.runway)
+    attrs = {"gegenwind_kt": round(hw, 1), "aktive_bahn": runway_designator(active)}
+    if isinstance(wg, (int, float)):
+        attrs["seitenwind_boeen_kt"] = round(crosswind(float(wd), float(wg), coord.runway)[0], 1)
+    return attrs
+
+
+def _gafor_value(coord: FlugwetterCoordinator, data: FlugwetterData) -> str | None:
+    reg = data.gafor_region
+    if not reg or not reg.windows:
+        return None
+    hour = datetime.now(timezone.utc).hour
+    for w in reg.windows:
+        if w.start_utc <= hour < w.end_utc:
+            return w.code
+    return reg.windows[0].code
+
+
+def _gafor_attrs(coord: FlugwetterCoordinator, data: FlugwetterData) -> dict[str, Any]:
+    reg = data.gafor_region
+    return {
+        "gebiet": coord.settings.get(CONF_GAFOR_REGION),
+        "gebietsname": reg.name if reg else None,
+        "datum": data.gafor_date.isoformat() if data.gafor_date else None,
+        "fenster": [{"von_utc": w.start_utc, "bis_utc": w.end_utc, "code": w.code} for w in reg.windows] if reg else [],
+    }
+
+
+SENSORS: tuple[FlugwetterSensorDescription, ...] = (
+    FlugwetterSensorDescription(
+        key="flugtag_heute",
+        translation_key="flugtag_heute",
+        device_class=SensorDeviceClass.ENUM,
+        options=STATUS_OPTIONS,
+        value_fn=lambda c, d: d.today.get("status"),
+        attr_fn=_day_attrs("today"),
+        unrecorded=frozenset({"stunden", "grenzwerte"}),
+    ),
+    FlugwetterSensorDescription(
+        key="flugtag_morgen",
+        translation_key="flugtag_morgen",
+        device_class=SensorDeviceClass.ENUM,
+        options=STATUS_OPTIONS,
+        value_fn=lambda c, d: d.tomorrow.get("status"),
+        attr_fn=_day_attrs("tomorrow"),
+        unrecorded=frozenset({"stunden"}),
+    ),
+    FlugwetterSensorDescription(
+        key="metar",
+        translation_key="metar",
+        value_fn=lambda c, d: ((d.metar or {}).get("rawOb") or "")[:255] or None,
+        attr_fn=_metar_attrs,
+        unrecorded=frozenset({"wolken"}),
+    ),
+    FlugwetterSensorDescription(
+        key="taf",
+        translation_key="taf",
+        value_fn=lambda c, d: (d.taf or {}).get("icaoId"),
+        attr_fn=lambda c, d: {"text": (d.taf or {}).get("rawTAF"), "ausgegeben": (d.taf or {}).get("issueTime")},
+        unrecorded=frozenset({"text"}),
+    ),
+    FlugwetterSensorDescription(
+        key="gafor",
+        translation_key="gafor",
+        value_fn=_gafor_value,
+        attr_fn=_gafor_attrs,
+        unrecorded=frozenset({"fenster"}),
+    ),
+    FlugwetterSensorDescription(
+        key="seitenwind",
+        translation_key="seitenwind",
+        device_class=SensorDeviceClass.WIND_SPEED,
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfSpeed.KNOTS,
+        suggested_display_precision=0,
+        value_fn=_crosswind_now,
+        attr_fn=_crosswind_attrs,
+    ),
+)
+
+
+async def async_setup_entry(
+    hass: HomeAssistant,
+    entry: FlugwetterConfigEntry,
+    async_add_entities: AddConfigEntryEntitiesCallback,
+) -> None:
+    coordinator = entry.runtime_data
+    async_add_entities(FlugwetterSensor(coordinator, desc) for desc in SENSORS)
+
+
+class FlugwetterSensor(CoordinatorEntity[FlugwetterCoordinator], SensorEntity):
+    """Ein Flugwetter-Sensor."""
+
+    _attr_has_entity_name = True
+    _unrecorded_attributes = frozenset({"stunden", "grenzwerte", "wolken", "text", "fenster"})
+    entity_description: FlugwetterSensorDescription
+
+    def __init__(self, coordinator: FlugwetterCoordinator, description: FlugwetterSensorDescription) -> None:
+        super().__init__(coordinator)
+        self.entity_description = description
+        entry = coordinator.config_entry
+        self._attr_unique_id = f"{entry.entry_id}_{description.key}"
+        self._attr_device_info = DeviceInfo(
+            identifiers={(DOMAIN, entry.entry_id)},
+            name=entry.title,
+            manufacturer="Flugwetter",
+            model="Flugplatz",
+            sw_version=VERSION,
+            entry_type=DeviceEntryType.SERVICE,
+        )
+
+    @property
+    def native_value(self) -> Any:
+        if self.coordinator.data is None:
+            return None
+        return self.entity_description.value_fn(self.coordinator, self.coordinator.data)
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any] | None:
+        if self.coordinator.data is None or self.entity_description.attr_fn is None:
+            return None
+        return self.entity_description.attr_fn(self.coordinator, self.coordinator.data)
