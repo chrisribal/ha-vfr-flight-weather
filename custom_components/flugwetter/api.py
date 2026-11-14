@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass, field
 from datetime import date
+from html import unescape
 from html.parser import HTMLParser
 import logging
 import math
@@ -14,7 +15,7 @@ from typing import Any
 import aiohttp
 
 from .const import AWC_BASE, GAFOR_URLS, OPEN_METEO_URL, USER_AGENT
-from .evaluation import GaforWindow
+from .evaluation import PRESSURE_LEVELS, GaforWindow
 
 _LOGGER = logging.getLogger(__name__)
 TIMEOUT = aiohttp.ClientTimeout(total=30)
@@ -133,12 +134,25 @@ async def async_fetch_forecast(
         "latitude": f"{lat:.4f}",
         "longitude": f"{lon:.4f}",
         "models": "icon_seamless",
-        "hourly": "temperature_2m,dew_point_2m,wind_speed_10m,wind_direction_10m,wind_gusts_10m,"
-        "cloud_cover_low,visibility,precipitation,weather_code",
+        "hourly": ",".join(
+            [
+                "temperature_2m",
+                "dew_point_2m",
+                "wind_speed_10m",
+                "wind_direction_10m",
+                "wind_gusts_10m",
+                "cloud_cover_low",
+                "visibility",
+                "precipitation",
+                "weather_code",
+            ]
+            + [f"cloud_cover_{p}hPa" for p in PRESSURE_LEVELS]
+            + [f"geopotential_height_{p}hPa" for p in PRESSURE_LEVELS]
+        ),
         "daily": "sunrise,sunset",
         "wind_speed_unit": "kn",
         "timezone": tz,
-        "forecast_days": "2",
+        "forecast_days": "3",
     }
     data = await _get_json(session, OPEN_METEO_URL, params)
     if not isinstance(data, dict) or "hourly" not in data:
@@ -189,12 +203,118 @@ class GaforRegion:
     number: str
     name: str
     windows: list[GaforWindow] = field(default_factory=list)
+    overview: dict[str, Any] | None = None
 
 
 @dataclass
 class GaforBulletin:
     issued: date | None
     regions: dict[str, GaforRegion]
+
+
+_PRE_RE = re.compile(r"<pre[^>]*>(.*?)</pre>", re.S | re.I)
+_HEADING_RE = re.compile(r"^([A-ZÄÖÜ][A-Za-zÄÖÜäöüß \-/]{2,45}):\s*$")
+_GROUP_RE = re.compile(r"^GAFOR-Gebiete\s+(\d+)\s*-\s*(\d+)\s*:\s*$")
+_TABLE_SECTIONS = ("Höhenwind",)
+
+
+def parse_overview(html: str) -> dict[str, Any] | None:
+    """Flugwetterübersicht (FBEU40) unverändert in Abschnitte gliedern.
+
+    Der Text wird nicht umformuliert: Fließtext-Zeilen eines Absatzes werden nur
+    wieder zusammengefügt, Tabellen bleiben zeilengenau erhalten.
+    """
+    m = _PRE_RE.search(html)
+    if not m:
+        return None
+    text = unescape(m.group(1)).replace("\r", "")
+    lines = [ln.rstrip() for ln in text.split("\n")]
+    titel = gueltig = naechste = None
+    sections: list[dict[str, Any]] = []
+    current: dict[str, Any] | None = None
+    buf: list[str] = []
+
+    def flush() -> None:
+        if current is None:
+            return
+        if current["tabelle"]:
+            current["gruppen"] = _split_groups(buf)
+        else:
+            paras, para = [], []
+            for ln in buf + [""]:
+                if ln.strip():
+                    para.append(ln.strip())
+                elif para:
+                    paras.append(" ".join(para))
+                    para = []
+            current["text"] = "\n\n".join(paras)
+        sections.append(current)
+
+    for ln in lines:
+        stripped = ln.strip()
+        if titel is None and stripped.startswith("Flugwetterübersicht"):
+            titel = stripped
+            continue
+        if gueltig is None and stripped.startswith("gültig"):
+            gueltig = stripped
+            continue
+        if stripped.startswith("Zeiten in UTC") or stripped.startswith("Die nächste planmäßige"):
+            flush()
+            current, buf = None, []
+            if stripped.startswith("Die nächste planmäßige"):
+                idx = lines.index(ln)
+                naechste = " ".join(x.strip() for x in lines[idx : idx + 2] if x.strip())
+            continue
+        hm = _HEADING_RE.match(stripped)
+        if hm and not _GROUP_RE.match(stripped) and not stripped.startswith("Vorhersagebereich"):
+            flush()
+            name = hm.group(1).strip()
+            current = {"titel": name, "tabelle": name.startswith(_TABLE_SECTIONS)}
+            buf = []
+            continue
+        if current is not None:
+            buf.append(ln)
+    flush()
+    if not sections:
+        return None
+    return {"titel": titel, "gueltig": gueltig, "abschnitte": sections, "naechste": naechste}
+
+
+def _split_groups(lines: list[str]) -> list[dict[str, Any]]:
+    """Höhenwind-Tabellen je Gebietsgruppe."""
+    groups: list[dict[str, Any]] = []
+    cur: dict[str, Any] | None = None
+    for ln in lines:
+        gm = _GROUP_RE.match(ln.strip())
+        if gm:
+            cur = {"von": int(gm.group(1)), "bis": int(gm.group(2)), "zeilen": []}
+            groups.append(cur)
+            continue
+        if not ln.strip():
+            continue
+        if cur is None:
+            cur = {"von": 0, "bis": 99, "zeilen": []}
+            groups.append(cur)
+        cur["zeilen"].append(ln.rstrip())
+    return groups
+
+
+def overview_for_region(overview: dict[str, Any] | None, region: str) -> dict[str, Any] | None:
+    """Übersicht auf die Höhenwind-Tabelle des eigenen Gebiets reduzieren."""
+    if not overview:
+        return None
+    try:
+        n = int(region)
+    except ValueError:
+        n = -1
+    out = {**overview, "abschnitte": []}
+    for sec in overview["abschnitte"]:
+        if sec.get("tabelle"):
+            groups = [g for g in sec.get("gruppen", []) if g["von"] <= n <= g["bis"]] or sec.get("gruppen", [])
+            out["abschnitte"].append({"titel": sec["titel"], "tabelle": True, "text": "\n".join(groups[0]["zeilen"]) if groups else ""})
+        else:
+            out["abschnitte"].append({"titel": sec["titel"], "tabelle": False, "text": sec.get("text", "")})
+    return out
 
 
 def parse_gafor_page(html: str) -> GaforBulletin:
@@ -236,7 +356,9 @@ async def async_fetch_gafor(session: aiohttp.ClientSession, areas: list[str] | N
             _LOGGER.debug("GAFOR %s nicht abrufbar: %s", key, err)
             return
         bulletin = parse_gafor_page(html)
+        overview = parse_overview(html)
         for num, reg in bulletin.regions.items():
+            reg.overview = overview_for_region(overview, num)
             result[num] = (bulletin.issued, reg)
 
     await asyncio.gather(*(one(k) for k in keys))

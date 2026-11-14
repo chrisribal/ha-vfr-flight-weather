@@ -1,20 +1,44 @@
-/* Flugwetter – Karte und Dashboard-Strategie für die Flugwetter-Integration.
- * Wird von der Integration automatisch geladen.
+/* Flugwetter – Karten und Dashboard-Strategie für die Flugwetter-Integration.
+ * Wird von der Integration automatisch geladen. Farben, Schriften und Abstände
+ * kommen aus dem aktiven Home-Assistant-Theme.
  */
-const FW_VERSION = "0.1.0";
+const FW_VERSION = "0.2.0";
 const FW_DOMAIN = "flugwetter";
+const FW_KEYS = ["jetzt", "naechstes_flugfenster", "wolkenuntergrenze", "flugtag_heute", "flugtag_morgen", "metar", "taf", "gafor", "seitenwind"];
 
-const DEFAULT_LIMITS = { xw: [8, 15], wind: [15, 20], boe: [20, 25], ceil: [2500, 1500] };
-const KEYS = ["flugtag_heute", "flugtag_morgen", "metar", "taf", "gafor", "seitenwind"];
-const STATUS_FALLBACK = { gut: "Guter Flugtag", eingeschraenkt: "Eingeschränkt", schlecht: "Kein Flugwetter", keine_daten: "Keine Daten" };
+const FW_VIEWS = {
+  komplett: "Alles in einer Karte",
+  jetzt: "Jetzt",
+  zeitstrahl: "Zeitstrahl mit Wind und Wolken",
+  wind: "Wind und Bahn",
+  meldungen: "METAR, TAF und GAFOR",
+  dwd: "DWD-Flugwetterübersicht",
+};
 
-/** Entitäten eines Flugplatz-Geräts über die Übersetzungsschlüssel finden. */
+const LVL_COLOR = [
+  "var(--success-color, #43a047)",
+  "var(--warning-color, #ffa600)",
+  "var(--error-color, #db4437)",
+  "var(--disabled-color, #9e9e9e)",
+];
+const NOW_INFO = {
+  fliegbar: { text: "Fliegbar", icon: "mdi:airplane-takeoff", lvl: 0 },
+  eingeschraenkt: { text: "Eingeschränkt", icon: "mdi:airplane-alert", lvl: 1 },
+  nicht_fliegbar: { text: "Nicht fliegbar", icon: "mdi:airplane-off", lvl: 2 },
+  nacht: { text: "Nacht", icon: "mdi:weather-night", lvl: 3 },
+  keine_daten: { text: "Keine Daten", icon: "mdi:help-circle-outline", lvl: 3 },
+};
+const DAY_TEXT = { gut: "Guter Flugtag", eingeschraenkt: "Eingeschränkt", schlecht: "Kein Flugwetter", vorbei: "Tag vorbei", keine_daten: "Keine Daten" };
+const DAY_LVL = { gut: 0, eingeschraenkt: 1, schlecht: 2 };
+
+// ---------------------------------------------------------------- Hilfsfunktionen
+
 function fwEntities(hass, deviceId) {
   const out = {};
   if (!hass || !hass.entities) return out;
   for (const e of Object.values(hass.entities)) {
-    if (e.device_id !== deviceId) continue;
-    const key = e.translation_key || KEYS.find((k) => e.entity_id.endsWith(k));
+    if (e.device_id !== deviceId || e.platform !== FW_DOMAIN) continue;
+    const key = e.translation_key || FW_KEYS.find((k) => e.entity_id.endsWith(k));
     if (key) out[key] = e.entity_id;
   }
   return out;
@@ -26,434 +50,599 @@ function fwDevices(hass) {
   return [...ids].map((id) => hass.devices[id]).filter(Boolean);
 }
 
-const LVL = [
-  { key: "ok", label: "Fliegbar", color: "var(--fw-green)" },
-  { key: "warn", label: "Eingeschränkt", color: "var(--fw-amber)" },
-  { key: "bad", label: "Kein Flugwetter", color: "var(--fw-red)" },
-];
-
+const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const pad = (n) => String(n).padStart(2, "0");
 const rad = (d) => (d * Math.PI) / 180;
-const pt = (cx, cy, r, deg) => [cx + r * Math.sin(rad(deg)), cy - r * Math.cos(rad(deg))];
-const esc = (s) =>
-  String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 const rwyNum = (h) => pad(Math.round(((h % 360) || 360) / 10));
+
+function coverCode(pct) {
+  if (pct >= 94) return "OVC";
+  if (pct >= 57) return "BKN";
+  if (pct >= 32) return "SCT";
+  if (pct >= 7) return "FEW";
+  return "";
+}
+
+function describeLayers(wk) {
+  const parts = (wk || []).map(([ft, pct]) => [coverCode(pct), ft]).filter(([c]) => c).map(([c, ft]) => `${c} ${ft.toLocaleString("de-DE")} ft`);
+  return parts.length ? parts.slice(0, 3).join(", ") : "Keine tiefen Wolken";
+}
+
+function fmtDuration(ms) {
+  const min = Math.max(0, Math.round(ms / 60000));
+  if (min < 60) return `${min} min`;
+  const h = Math.floor(min / 60);
+  const m = min % 60;
+  return m ? `${h} h ${m} min` : `${h} h`;
+}
+
+class FwClock {
+  constructor(hass) {
+    const lang = hass?.locale?.language || hass?.language || "de";
+    const tz = hass?.config?.time_zone;
+    this.time = new Intl.DateTimeFormat(lang, { hour: "2-digit", minute: "2-digit", timeZone: tz });
+    this.hourFmt = new Intl.DateTimeFormat("en-GB", { hour: "numeric", hourCycle: "h23", timeZone: tz });
+    this.wd = new Intl.DateTimeFormat(lang, { weekday: "short", timeZone: tz });
+    this.day = new Intl.DateTimeFormat("en-CA", { year: "numeric", month: "2-digit", day: "2-digit", timeZone: tz });
+  }
+  t(d) {
+    return this.time.format(new Date(d));
+  }
+  /** Stunde 0–23 in der Zeitzone von Home Assistant */
+  hour(d) {
+    const part = this.hourFmt.formatToParts(new Date(d)).find((p) => p.type === "hour");
+    return part ? Number(part.value) % 24 : 0;
+  }
+  dayKey(d) {
+    return this.day.format(new Date(d));
+  }
+  /** "12:00", "morgen 09:00" oder "Mo 09:00" */
+  when(d) {
+    const now = new Date();
+    const tomorrow = new Date(now.getTime() + 86400000);
+    const k = this.dayKey(d);
+    if (k === this.dayKey(now)) return this.t(d);
+    if (k === this.dayKey(tomorrow)) return `morgen ${this.t(d)}`;
+    return `${this.wd.format(new Date(d))} ${this.t(d)}`;
+  }
+}
+
+function moreInfo(el, entityId) {
+  if (!entityId) return;
+  el.dispatchEvent(new CustomEvent("hass-more-info", { detail: { entityId }, bubbles: true, composed: true }));
+}
+
+// ---------------------------------------------------------------- Karte
 
 class FlugwetterCard extends HTMLElement {
   setConfig(config) {
-    this._config = { ...config };
-    this._tab = "heute";
-    if (!this.shadowRoot) this.attachShadow({ mode: "open" });
+    if (config.ansicht && !FW_VIEWS[config.ansicht]) throw new Error(`Unbekannte Ansicht: ${config.ansicht}`);
+    this._config = { ansicht: "komplett", stunden: 24, ...config };
+    this._sel = null;
     this._sig = null;
+    if (!this.shadowRoot) {
+      this.attachShadow({ mode: "open" });
+      this.shadowRoot.addEventListener("click", (ev) => this._onClick(ev));
+    }
+    if (this._hass) this._render();
   }
 
   set hass(hass) {
     this._hass = hass;
-    let dev = this._config.device_id;
-    if (!dev) dev = fwDevices(hass)[0]?.id;
+    const dev = this._config.device_id || fwDevices(hass)[0]?.id;
     this._dev = dev;
     this._ids = fwEntities(hass, dev);
-    const ids = Object.values(this._ids);
-    const sig = ids.map((id) => hass.states[id]?.last_updated).join("|") + "|" + new Date().getMinutes();
+    const sig = Object.values(this._ids).map((id) => hass.states[id]?.last_updated).join("|") + "|" + Math.floor(Date.now() / 60000);
     if (sig === this._sig) return;
     this._sig = sig;
     this._render();
   }
 
   getCardSize() {
-    return 12;
+    return { jetzt: 4, zeitstrahl: 7, wind: 5, meldungen: 4, dwd: 5 }[this._config?.ansicht] || 14;
   }
 
   getGridOptions() {
-    return { columns: "full", rows: "auto" };
+    return { columns: "full", rows: "auto", min_columns: 6 };
   }
 
   static getStubConfig(hass) {
-    return { device_id: fwDevices(hass)[0]?.id || "" };
+    return { device_id: fwDevices(hass)[0]?.id || "", ansicht: "jetzt" };
   }
 
   static getConfigElement() {
     return document.createElement("flugwetter-card-editor");
   }
 
-  // Platzdaten und Grenzwerte kommen aus dem Sensor „Flugtag heute“
-  get _runway() {
-    return Number(this._st(this._ids.flugtag_heute)?.attributes?.bahn_kurs ?? 90);
+  _st(key) {
+    return this._hass?.states[this._ids?.[key]];
   }
 
-  get _limits() {
-    const g = this._st(this._ids.flugtag_heute)?.attributes?.grenzwerte;
-    if (!g) return DEFAULT_LIMITS;
-    return { xw: [g.xw_warn, g.xw_limit], wind: [g.wind_warn, g.wind_limit], boe: [g.gust_warn, g.gust_limit], ceil: [g.ceil_warn, g.ceil_limit] };
-  }
-
-  _st(id) {
-    return this._hass?.states?.[id];
-  }
-
-  // ---------- Windrose ----------
-  _compass(wd, ws, wg) {
-    const c = { runway: this._runway };
-    const L = this._limits;
-    const cx = 120, cy = 120, R = 104;
-    let s = "";
-    // Farbiger Außenring: zulässige Windrichtungen bei aktueller Windstärke
-    if (ws > 0) {
-      for (let d = 0; d < 360; d += 10) {
-        const xw = Math.abs(ws * Math.sin(rad(d - c.runway)));
-        const col = xw >= L.xw[1] ? "var(--fw-red)" : xw >= L.xw[0] ? "var(--fw-amber)" : "var(--fw-green)";
-        const [x1, y1] = pt(cx, cy, R, d - 4.5);
-        const [x2, y2] = pt(cx, cy, R, d + 4.5);
-        s += `<path d="M${x1},${y1} A${R},${R} 0 0 1 ${x2},${y2}" stroke="${col}" stroke-width="7" fill="none" opacity=".85"/>`;
-      }
-    } else {
-      s += `<circle cx="${cx}" cy="${cy}" r="${R}" stroke="var(--fw-green)" stroke-width="7" fill="none" opacity=".5"/>`;
+  _onClick(ev) {
+    const hour = ev.target.closest?.("[data-i]");
+    if (hour) {
+      const i = Number(hour.dataset.i);
+      this._sel = this._sel === i ? null : i;
+      this._render();
+      return;
     }
-    // Skala
-    for (let d = 0; d < 360; d += 10) {
-      const long = d % 30 === 0;
-      const [x1, y1] = pt(cx, cy, R - 8, d);
-      const [x2, y2] = pt(cx, cy, R - (long ? 18 : 13), d);
-      s += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--fw-muted)" stroke-width="${long ? 2 : 1}"/>`;
-      if (long) {
-        const lbl = { 0: "N", 90: "O", 180: "S", 270: "W" }[d] ?? String(d / 10);
-        const [tx, ty] = pt(cx, cy, R - 30, d);
-        const big = d % 90 === 0;
-        s += `<text x="${tx}" y="${ty}" text-anchor="middle" dominant-baseline="central" class="${big ? "card" : "num"}">${lbl}</text>`;
-      }
-    }
-    // Bahn
-    const rl = 104, rw = 24;
-    const yTop = cy - rl / 2 + 14, yBot = cy + rl / 2 - 14;
-    s += `<g transform="rotate(${c.runway} ${cx} ${cy})">
-      <rect x="${cx - rw / 2}" y="${cy - rl / 2}" width="${rw}" height="${rl}" rx="3" fill="var(--fw-runway)" stroke="rgba(255,255,255,.35)" stroke-width="1"/>
-      <line x1="${cx}" y1="${yTop + 12}" x2="${cx}" y2="${yBot - 12}" stroke="#fff" stroke-width="1.5" stroke-dasharray="7 6"/>
-      <text x="${cx}" y="${yTop}" text-anchor="middle" dominant-baseline="central" class="rwy">${rwyNum(c.runway + 180)}</text>
-      <text x="${cx}" y="${yBot}" text-anchor="middle" dominant-baseline="central" class="rwy" transform="rotate(180 ${cx} ${yBot})">${rwyNum(c.runway)}</text>
-    </g>`;
-    // Windpfeil (zeigt, wohin der Wind weht)
-    if (ws > 0 && wd != null) {
-      const [x1, y1] = pt(cx, cy, 90, wd);
-      const [x2, y2] = pt(cx, cy, 62, wd + 180);
-      const [h1x, h1y] = pt(x2, y2, 14, wd + 180 + 150);
-      const [h2x, h2y] = pt(x2, y2, 14, wd + 180 - 150);
-      s += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" stroke="var(--fw-arrow)" stroke-width="5" stroke-linecap="round"/>
-        <polygon points="${x2 + (x2 - x1) * 0.0},${y2} ${h1x},${h1y} ${h2x},${h2y}" fill="var(--fw-arrow)"/>
-        <circle cx="${x1}" cy="${y1}" r="5" fill="var(--fw-arrow)"/>`;
-    } else {
-      s += `<text x="${cx}" y="${cy + 34}" text-anchor="middle" class="num">Windstill</text>`;
-    }
-    return `<svg viewBox="0 0 240 240" class="compass" role="img" aria-label="Windrose">${s}</svg>`;
-  }
-
-  // ---------- Stundenverlauf ----------
-  _timeline(rows) {
-    const L = this._limits;
-    if (!rows || !rows.length) return `<div class="empty">Keine Tageslichtstunden mehr für diesen Tag.</div>`;
-    const now = new Date();
-    const nowKey = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}`;
-    const H = 92, top = 10, VW = 1000;
-    const maxV = Math.max(L.boe[1] + 5, ...rows.map((r) => r.wg || 0)) ;
-    const y = (v) => top + (H - top) * (1 - v / maxV);
-    const n = rows.length;
-    const X = (i) => ((i + 0.5) / n) * VW;
-    let bands = "", wind = "", gust = "";
-    rows.forEach((r, i) => {
-      const x = X(i);
-      wind += `${i ? "L" : "M"}${x},${y(r.ws)}`;
-      gust += `${i ? "L" : "M"}${x},${y(r.wg)}`;
-    });
-    const lim = (v, cls) => `<line x1="0" x2="${VW}" y1="${y(v)}" y2="${y(v)}" class="${cls}"/>`;
-    const lbl = (v, t) => `<span class="limt" style="top:${y(v) - 13}px">${t}</span>`;
-    const chart = `<div class="chartwrap" style="height:${H + 4}px">
-      <svg viewBox="0 0 ${VW} ${H + 4}" preserveAspectRatio="none" class="chart">
-      ${lim(L.boe[1], "lim-red")}${lim(L.wind[0], "lim-amber")}
-      <path d="${gust}" class="gust"/><path d="${wind}" class="wind"/>
-      </svg>${lbl(L.boe[1], `Böen ${L.boe[1]} kt`)}${lbl(L.wind[0], `Wind ${L.wind[0]} kt`)}</div>`;
-    const cols = rows
-      .map((r) => {
-        const cur = `${r.d} ${r.h.slice(0, 2)}` === nowKey;
-        const lv = LVL[r.lvl] || LVL[0];
-        const ceil = r.ceil ? `${r.ceil}` : "—";
-        const ceilCls = r.ceil == null ? "" : r.ceil < L.ceil[1] ? "t-red" : r.ceil < L.ceil[0] ? "t-amber" : "";
-        const xwCls = r.xw >= L.xw[1] ? "t-red" : r.xw >= L.xw[0] ? "t-amber" : "";
-        return `<div class="hr ${cur ? "cur" : ""}" title="${esc(r.why || "Keine Einschränkung")}">
-          <div class="h">${esc(r.h)}</div>
-          <div class="pill" style="background:${lv.color}"></div>
-          <svg viewBox="-12 -12 24 24" class="arrow" style="transform:rotate(${r.wd + 180}deg)"><path d="M0,-9 L5,4 L0,1 L-5,4 Z"/></svg>
-          <div class="v">${r.ws}${r.wg - r.ws >= 5 ? `<span class="g">G${r.wg}</span>` : ""}</div>
-          <div class="s ${xwCls}">${r.xw}<small> ${esc(r.bahn)}</small></div>
-          <div class="s ${ceilCls}">${ceil}</div>
-        </div>`;
-      })
-      .join("");
-    return `<div class="tl-scroll"><div class="tl" style="min-width:${n * 56}px">
-        <div class="cols">${cols}</div>${chart}
-      </div></div>
-      <div class="legend"><span><i class="lg-w"></i>Wind</span><span><i class="lg-g"></i>Böen</span>
-      <span>Zeilen: Wind kt · Seitenwind kt (Bahn) · Wolken ft AGL</span></div>`;
-  }
-
-  _status(e, small) {
-    if (!e) return "";
-    const st = Number(e.attributes.stufe ?? -1);
-    const lv = LVL[st];
-    const color = lv ? lv.color : "var(--fw-muted)";
-    const fenster = e.attributes.fenster;
-    const g0 = e.attributes.gruende || [];
-    const gr = (Array.isArray(g0) ? g0 : String(g0).split(",")).map((x) => String(x).trim()).filter(Boolean);
-    return `<div class="status ${small ? "small" : ""}" style="--c:${color}">
-      <div class="dotbig"></div>
-      <div>
-        <div class="st">${esc(this._hass.formatEntityState ? this._hass.formatEntityState(e) : STATUS_FALLBACK[e.state] || e.state)}</div>
-        ${fenster ? `<div class="sub">Bestes Fenster ${esc(fenster)} Uhr</div>` : ""}
-        ${gr.length ? `<div class="chips">${gr.map((g) => `<span>${esc(g)}</span>`).join("")}</div>` : ""}
-      </div>
-    </div>`;
-  }
-
-  _metarInfo(m) {
-    if (!m) return null;
-    const a = m.attributes;
-    let vis = "—";
-    if (a.sicht != null) {
-      const v = String(a.sicht);
-      vis = v.includes("+") ? "≥ 10 km" : `${Math.min(10, Math.round(parseFloat(v) * 1.609))} km`;
-    }
-    let ceil = "Keine Decke";
-    const cl = Array.isArray(a.wolken) ? a.wolken : [];
-    const dec = cl.filter((x) => ["BKN", "OVC", "VV"].includes(x.cover)).sort((p, q) => p.base - q.base)[0];
-    if (dec) ceil = `${dec.cover} ${dec.base} ft`;
-    else if (cl.length && cl[0].cover !== "CAVOK" && cl[0].base) ceil = `${cl[0].cover} ${cl[0].base} ft`;
-    const ws = Number(a.wind_kt ?? 0), wg = a.boeen_kt != null ? Number(a.boeen_kt) : null;
-    const wd = a.wind_richtung === "VRB" || a.wind_richtung == null ? null : Number(a.wind_richtung);
-    let age = "";
-    if (a.beobachtet) {
-      const t = Date.parse(a.beobachtet);
-      const mins = Math.round((Date.now() - t) / 60000);
-      if (!isNaN(mins)) age = mins < 120 ? `vor ${mins} min` : `vor ${Math.round(mins / 60)} h`;
-    }
-    return { vis, ceil, ws, wg, wd, temp: a.temperatur, dewp: a.taupunkt, qnh: a.qnh, cat: a.flugkategorie, age, raw: m.state, station: a.station };
+    const more = ev.target.closest?.("[data-more]");
+    if (more) moreInfo(this, this._ids[more.dataset.more]);
   }
 
   _render() {
-    const L = this._limits;
-    const runway = this._runway;
-    const c = { runway };
-    const ids = this._ids || {};
-    if (!this._dev || !ids.flugtag_heute) {
-      this.shadowRoot.innerHTML = `<ha-card><div style="padding:16px">Kein Flugplatz gefunden. Richte zuerst die Integration „Flugwetter“ ein und wähle dann den Flugplatz in den Karteneinstellungen.</div></ha-card>`;
-      return;
+    if (!this.shadowRoot || !this._hass) return;
+    const view = this._config.ansicht;
+    const jetzt = this._st("jetzt");
+    let body;
+    if (!this._dev || !jetzt) {
+      body = `<div class="empty">Kein Flugplatz gefunden. Richte die Integration „Flugwetter“ ein und wähle den Flugplatz in den Karteneinstellungen.</div>`;
+    } else {
+      this._clock = new FwClock(this._hass);
+      const parts = {
+        jetzt: () => this._now(),
+        zeitstrahl: () => this._timeline(),
+        wind: () => this._wind(),
+        meldungen: () => this._reports(),
+        dwd: () => this._dwd(),
+      };
+      const order = view === "komplett" ? ["jetzt", "zeitstrahl", "wind", "meldungen", "dwd"] : [view];
+      body = order.map((k) => parts[k]()).filter(Boolean).join(`<div class="divider"></div>`);
     }
-    const heute = this._st(ids.flugtag_heute), morgen = this._st(ids.flugtag_morgen);
-    const met = this._metarInfo(this._st(ids.metar));
-    const taf = this._st(ids.taf);
-    const gaforSt = this._st(ids.gafor);
-    const title = this._config.title || this._hass.devices?.[this._dev]?.name_by_user || this._hass.devices?.[this._dev]?.name || "Flugwetter";
-    const now = new Date();
-    const utc = `${pad(now.getUTCHours())}:${pad(now.getUTCMinutes())}`;
-    const lt = `${pad(now.getHours())}:${pad(now.getMinutes())}`;
+    const title = this._config.title ? `<h1 class="card-header">${esc(this._config.title)}</h1>` : "";
+    this.shadowRoot.innerHTML = `<style>${FW_CSS}</style><ha-card>${title}<div class="content">${body}</div></ha-card>`;
+  }
 
-    // Seitenwind aktuell
-    let xwHtml = "";
-    if (met) {
-      const ws = met.ws, wd = met.wd;
-      const ang = wd == null ? 0 : wd - c.runway;
-      const head = wd == null ? 0 : ws * Math.cos(rad(ang));
-      const active = head >= 0 ? c.runway : c.runway + 180;
-      const xw = wd == null ? 0 : Math.abs(ws * Math.sin(rad(ang)));
-      const hw = Math.abs(head);
-      const xwg = met.wg && wd != null ? Math.abs(met.wg * Math.sin(rad(ang))) : null;
-      const col = xw >= L.xw[1] ? "var(--fw-red)" : xw >= L.xw[0] ? "var(--fw-amber)" : "var(--fw-green)";
-      const fromRight = wd != null && Math.sin(rad(wd - active)) > 0;
-      xwHtml = `<div class="xw" style="--c:${col}">
-        <div class="rwybadge">${rwyNum(active)}</div>
-        <div>
-          <div class="big">${Math.round(xw)} <small>kt</small></div>
-          <div class="sub">Seitenwind ${wd == null ? "(umlaufend)" : fromRight ? "von rechts" : "von links"}${xwg ? ` · Böen ${Math.round(xwg)} kt` : ""}</div>
-          <div class="sub">Gegenwind ${Math.round(hw)} kt · Bahn ${rwyNum(active)} aktiv</div>
+  // -------------------------------------------------- Jetzt
+
+  _now() {
+    const st = this._st("jetzt");
+    const a = st.attributes;
+    const info = NOW_INFO[st.state] || NOW_INFO.keine_daten;
+    const color = LVL_COLOR[info.lvl];
+    const label = this._hass.formatEntityState ? this._hass.formatEntityState(st) : info.text;
+    const rows = a.stunden || [];
+    const cur = rows[0];
+    const clock = this._clock;
+    const now = Date.now();
+
+    // Kernaussage: bis wann / ab wann
+    let headline = "";
+    if (st.state === "fliegbar" && a.fliegbar_bis) {
+      headline = `Fliegbar bis ${clock.when(a.fliegbar_bis)} <span class="dim">(noch ${fmtDuration(new Date(a.fliegbar_bis) - now)})</span>`;
+    } else if (st.state === "eingeschraenkt" && a.fliegbar_bis) {
+      headline = `Eingeschränkt bis ${clock.when(a.fliegbar_bis)}`;
+      if (a.naechstes_fenster_stufe === 0 && new Date(a.naechstes_fenster_start) > now) {
+        headline += ` · gut ab ${clock.when(a.naechstes_fenster_start)}`;
+      }
+    } else if (a.naechstes_fenster_start) {
+      const what = a.naechstes_fenster_stufe === 0 ? "Fliegbar" : "Eingeschränkt fliegbar";
+      headline = `${what} ab ${clock.when(a.naechstes_fenster_start)} <span class="dim">(in ${fmtDuration(new Date(a.naechstes_fenster_start) - now)})</span> bis ${clock.when(a.naechstes_fenster_ende)}`;
+    } else if (st.state !== "keine_daten") {
+      headline = `In den nächsten ${rows.length} Stunden kein Flugfenster`;
+    }
+
+    const reasons = (a.gruende || []).map((g) => `<span class="chip">${esc(g)}</span>`).join("");
+
+    // Aktuelle Werte (laufende Stunde, bei frischem METAR beobachtet)
+    const metar = this._st("metar");
+    const ma = metar?.attributes || {};
+    const fromMetar = cur?.q === "metar";
+    const values = [];
+    if (cur) {
+      const gust = cur.wg > cur.ws + 2 ? ` G${cur.wg}` : "";
+      values.push(["Wind", cur.ws ? `${String(cur.wd).padStart(3, "0")}° / ${cur.ws} kt${gust}` : "Windstill"]);
+      values.push(["Seitenwind", `${cur.xw} kt · Bahn ${cur.bahn}`]);
+      let clouds;
+      if (fromMetar) {
+        const list = (ma.wolken || []).map((c) => `${c.cover} ${Number(c.base).toLocaleString("de-DE")} ft`);
+        clouds = list.length ? list.slice(0, 3).join(", ") : "Keine Wolken gemeldet";
+      } else {
+        clouds = describeLayers(cur.wk);
+      }
+      values.push(["Wolken", clouds]);
+      values.push(["Untergrenze", cur.ceil != null ? `${Number(cur.ceil).toLocaleString("de-DE")} ft` : "keine"]);
+      values.push(["Sicht", cur.vis == null ? "–" : cur.vis >= 10000 ? "über 10 km" : `${(cur.vis / 1000).toLocaleString("de-DE", { maximumFractionDigits: 1 })} km`]);
+    }
+    if (ma.qnh) values.push(["QNH", `${ma.qnh} hPa`]);
+    const today = (a.tage || [])[0];
+    if (today) values.push(["Flugtag (BDA–BDE)", `${clock.t(today.bda)}–${clock.t(today.bde)}`]);
+
+    const src = fromMetar
+      ? `Jetzt laut METAR ${esc(ma.station || "")}${ma.beobachtet ? ` von ${clock.t(ma.beobachtet)}` : ""}`
+      : "Jetzt laut Modellvorhersage";
+
+    const day = (key, name) => {
+      const s = this._st(key);
+      if (!s) return "";
+      const lvl = DAY_LVL[s.state] ?? 3;
+      const txt = this._hass.formatEntityState ? this._hass.formatEntityState(s) : DAY_TEXT[s.state] || s.state;
+      const win = s.attributes.fenster ? ` · ${esc(s.attributes.fenster)}` : "";
+      return `<div class="day" data-more="${key}"><span class="dot" style="background:${LVL_COLOR[lvl]}"></span><span class="day-name">${name}</span><span class="day-val">${esc(txt)}${win}</span></div>`;
+    };
+
+    return `
+      <div class="now">
+        <div class="now-head" data-more="jetzt">
+          <div class="badge" style="--c:${color}"><ha-icon icon="${info.icon}"></ha-icon></div>
+          <div class="now-text">
+            <div class="primary">${esc(label)}</div>
+            <div class="secondary">${esc(a.icao || "")} · Bahn ${esc(a.bahnen || "")} · ${src}</div>
+          </div>
         </div>
+        ${headline ? `<div class="headline">${headline}</div>` : ""}
+        ${reasons ? `<div class="chips">${reasons}</div>` : ""}
+        <div class="values">${values.map(([l, v]) => `<div class="value"><div class="label">${l}</div><div class="val">${esc(v)}</div></div>`).join("")}</div>
+        <div class="days">${day("flugtag_heute", "Heute")}${day("flugtag_morgen", "Morgen")}</div>
       </div>`;
-    }
+  }
 
-    const rowsH = heute?.attributes?.stunden || [];
-    const rowsM = morgen?.attributes?.stunden || [];
-    const rows = this._tab === "heute" ? rowsH : rowsM;
+  // -------------------------------------------------- Zeitstrahl
 
-    const gA = gaforSt?.attributes || {};
-    const todayIso = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}`;
-    const gaforFresh = gA.datum === todayIso;
-    const gafor = (gaforFresh ? gA.fenster || [] : [])
-      .map((w) => {
-        const code = String(w.code || "").trim();
-        const k = code[0];
-        const col = ["C", "O"].includes(k) ? "var(--fw-green)" : k === "D" ? "var(--fw-amber)" : ["M", "X"].includes(k) ? "var(--fw-red)" : "var(--fw-muted)";
-        const off = -now.getTimezoneOffset() / 60;
-        const loc = `${pad((w.von_utc + off) % 24)}–${pad((w.bis_utc + off) % 24)} Uhr`;
-        return `<div class="gf" style="--c:${col}"><div class="gc">${esc(code || "—")}</div><div class="gt">${esc(loc)}</div><div class="gu">${pad(w.von_utc)}–${pad(w.bis_utc)} UTC</div></div>`;
+  _timeline() {
+    const st = this._st("jetzt");
+    const a = st.attributes;
+    const rows = (a.stunden || []).slice(0, Math.max(6, Math.min(36, Number(this._config.stunden) || 24)));
+    if (!rows.length) return `<div class="empty">Keine Vorhersage verfügbar.</div>`;
+    const n = rows.length;
+    const lim = a.grenzwerte || {};
+    const clock = this._clock;
+    const sel = this._sel != null && this._sel < n ? this._sel : 0;
+    const t0 = new Date(rows[0].t).getTime();
+    const nowFrac = Math.min(1, Math.max(0, (Date.now() - t0) / 3600000)) / n;
+    const xOf = (iso) => ((new Date(iso).getTime() - t0) / 3600000);
+
+    // Status-Leiste
+    const segs = rows
+      .map((r, i) => {
+        const night = !r.tag;
+        const style = night ? "" : `background:${LVL_COLOR[r.lvl]}`;
+        const title = `${clock.when(r.t)} – ${night ? "Nacht" : ["Fliegbar", "Eingeschränkt", "Nicht fliegbar"][r.lvl]}${r.why ? `: ${r.why}` : ""}`;
+        return `<div class="seg${night ? " night" : ""}${i === sel ? " sel" : ""}" data-i="${i}" style="${style}" title="${esc(title)}"></div>`;
       })
       .join("");
-    const gaforName = gA.gebiet ? `${gA.gebiet}${gA.gebietsname ? " · " + gA.gebietsname : ""}` : "";
-    const gaforHint = gA.gebiet && !gaforFresh ? `<div class="sub">Noch kein GAFOR für heute${gA.datum ? ` (letzter vom ${esc(gA.datum)})` : ""}.</div>` : "";
 
-    const catCol = { VFR: "var(--fw-green)", MVFR: "var(--fw-blue)", IFR: "var(--fw-red)", LIFR: "var(--fw-purple)" }[met?.cat] || "var(--fw-muted)";
-
-    this.shadowRoot.innerHTML = `
-      <style>${FlugwetterCard.styles}</style>
-      <ha-card>
-        <div class="wrap">
-          <header>
-            <div>
-              <div class="title">${esc(title)}</div>
-              <div class="subtitle">Bahn ${rwyNum(c.runway)}/${rwyNum(c.runway + 180)}${met ? ` · METAR ${esc(met.station || met.raw.split(" ")[1] || "")} ${esc(met.age)}` : ""}</div>
-            </div>
-            <div class="clock"><div><b>${lt}</b><span>LT</span></div><div><b>${utc}</b><span>UTC</span></div></div>
-          </header>
-
-          <section class="hero">
-            <div class="col status-col">
-              <div class="lbl-sm">Heute</div>
-              ${this._status(heute)}
-              <div class="lbl-sm">Morgen</div>
-              ${this._status(morgen, true)}
-            </div>
-            <div class="col compass-col">
-              ${this._compass(met?.wd, met?.ws || 0, met?.wg)}
-              <div class="windrow">
-                <div><b>${met && met.wd != null ? String(Math.round(met.wd)).padStart(3, "0") + "°" : met ? "VRB" : "—"}</b><span>Richtung</span></div>
-                <div><b>${met ? Math.round(met.ws) : "—"}</b><span>kt Wind</span></div>
-                <div class="gustv"><b>${met?.wg ? Math.round(met.wg) : "—"}</b><span>kt Böen</span></div>
-              </div>
-            </div>
-            <div class="col obs-col">
-              ${met ? `<div class="cat" style="--c:${catCol}">${esc(met.cat || "—")}</div>` : ""}
-              <ul class="obs">
-                <li><span>Sicht</span><b>${met ? esc(met.vis) : "—"}</b></li>
-                <li><span>Wolken</span><b>${met ? esc(met.ceil) : "—"}</b></li>
-                <li><span>Temp / Taupunkt</span><b>${met && met.temp != null ? `${Math.round(met.temp)}° / ${Math.round(met.dewp)}°` : "—"}</b></li>
-                <li><span>QNH</span><b>${met && met.qnh != null ? `${Math.round(met.qnh)} hPa` : "—"}</b></li>
-              </ul>
-              ${xwHtml}
-            </div>
-          </section>
-
-          <section class="timeline">
-            <div class="tabs">
-              <button class="${this._tab === "heute" ? "on" : ""}" data-tab="heute">Heute</button>
-              <button class="${this._tab === "morgen" ? "on" : ""}" data-tab="morgen">Morgen</button>
-              <span class="hint">Modell DWD ICON · Bahn ${esc(heute?.attributes?.bahnen || "")} · nur Tageslicht</span>
-            </div>
-            ${this._timeline(rows)}
-          </section>
-
-          <section class="bottom">
-            ${gA.gebiet ? `<div class="gafor"><div class="lbl-sm">GAFOR ${esc(gaforName)}</div>${gafor ? `<div class="gfs">${gafor}</div>` : gaforHint}</div>` : ""}
-            <div class="codes">
-              ${met ? `<div class="lbl-sm">METAR</div><code>${esc(met.raw)}</code>` : ""}
-              ${taf?.attributes?.text ? `<div class="lbl-sm">TAF</div><code>${esc(taf.attributes.text)}</code>` : ""}
-            </div>
-          </section>
-
-          <footer>Orientierungshilfe, ersetzt keine Flugvorbereitung. Wolkenuntergrenze aus Temperatur/Taupunkt geschätzt. Flugwetter-Karte ${FW_VERSION}</footer>
-        </div>
-      </ha-card>`;
-
-    this.shadowRoot.querySelectorAll(".tabs button").forEach((b) =>
-      b.addEventListener("click", () => {
-        this._tab = b.dataset.tab;
-        this._render();
+    // Stundenbeschriftung, Tageswechsel
+    const labels = rows
+      .map((r, i) => {
+        const h = clock.hour(r.t);
+        let txt = "";
+        if (h === 0) txt = `<b>${esc(clock.wd.format(new Date(r.t)))}</b>`;
+        else if (h % 3 === 0) txt = pad(h);
+        return `<div class="hl" data-i="${i}">${txt}</div>`;
       })
-    );
-    const cur = this.shadowRoot.querySelector(".hr.cur");
-    if (cur) {
-      const sc = this.shadowRoot.querySelector(".tl-scroll");
-      sc.scrollLeft = Math.max(0, cur.offsetLeft - 60);
+      .join("");
+    const midnights = rows
+      .map((r, i) => (i > 0 && clock.hour(r.t) === 0 ? i : null))
+      .filter((i) => i != null);
+
+    // Nachtbereiche aus BDA/BDE (genauer als die Stundenwerte)
+    const nightRects = [];
+    const days = a.tage || [];
+    let prevEnd = -1000;
+    for (const d of days) {
+      const s = xOf(d.bda);
+      if (s > prevEnd) nightRects.push([Math.max(0, prevEnd), Math.min(n, s)]);
+      prevEnd = xOf(d.bde);
     }
+    if (prevEnd < n) nightRects.push([Math.max(0, prevEnd), n]);
+    const nightSvg = (h) =>
+      nightRects
+        .filter(([s, e]) => e > s)
+        .map(([s, e]) => `<rect x="${s}" y="0" width="${e - s}" height="${h}" class="nightbg"/>`)
+        .join("");
+    const gridSvg = (h) => midnights.map((i) => `<line x1="${i}" x2="${i}" y1="0" y2="${h}" class="midnight"/>`).join("");
+    const selSvg = (h) => `<rect x="${sel}" y="0" width="1" height="${h}" class="selbg"/>`;
+    const nowSvg = (h) => `<line x1="${nowFrac * n}" x2="${nowFrac * n}" y1="0" y2="${h}" class="nowline"/>`;
+
+    // Wind
+    const WH = 100;
+    const wMax = Math.max(lim.xw_limit || 15, lim.wind_limit || 20, ...rows.map((r) => r.wg)) + 5;
+    const wTop = Math.ceil(wMax / 10) * 10;
+    const wy = (v) => WH - (v / wTop) * WH;
+    const line = (key) => rows.map((r, i) => `${i + 0.5},${wy(r[key]).toFixed(1)}`).join(" ");
+    const limLine = (v, cls) => (v && v < wTop ? `<line x1="0" x2="${n}" y1="${wy(v)}" y2="${wy(v)}" class="${cls}"/>` : "");
+    const windSvg = `
+      <svg viewBox="0 0 ${n} ${WH}" preserveAspectRatio="none" class="chart" style="height:${WH}px">
+        ${nightSvg(WH)}${selSvg(WH)}${gridSvg(WH)}
+        ${limLine(lim.xw_limit, "lim bad")}${limLine(lim.xw_warn, "lim warn")}
+        <polygon points="0.5,${WH} ${line("xw")} ${n - 0.5},${WH}" class="xwarea"/>
+        <polyline points="${line("wg")}" class="gust"/>
+        <polyline points="${line("ws")}" class="wind"/>
+        ${nowSvg(WH)}
+      </svg>`;
+    const windAxis = [wTop / 2, wTop].map((v) => `<span style="top:${(wy(v) / WH) * 100}%">${v}</span>`).join("");
+
+    // Wolken
+    const CH = 150;
+    const cTop = Number(this._config.wolken_max) || 8000;
+    const cy = (ft) => CH - (Math.min(ft, cTop) / cTop) * CH;
+    const cloudRects = [];
+    rows.forEach((r, i) => {
+      const wk = (r.wk || []).filter(([ft]) => ft <= cTop * 1.2);
+      wk.forEach(([ft, pct], k) => {
+        if (pct < 7) return;
+        const below = k > 0 ? (wk[k - 1][0] + ft) / 2 : Math.max(0, ft - (wk[k + 1] ? (wk[k + 1][0] - ft) / 2 : 300));
+        const above = k < wk.length - 1 ? (ft + wk[k + 1][0]) / 2 : ft + (k > 0 ? (ft - wk[k - 1][0]) / 2 : 300);
+        const y1 = cy(above);
+        const y2 = cy(below);
+        if (y2 - y1 <= 0) return;
+        cloudRects.push(`<rect x="${i}" y="${y1.toFixed(1)}" width="1" height="${(y2 - y1).toFixed(1)}" class="cloud" style="opacity:${(0.12 + (pct / 100) * 0.6).toFixed(2)}"/>`);
+      });
+    });
+    const ceilMarks = rows
+      .map((r, i) => (r.ceil != null && r.ceil <= cTop ? `<line x1="${i + 0.15}" x2="${i + 0.85}" y1="${cy(r.ceil)}" y2="${cy(r.ceil)}" class="ceil" style="stroke:${LVL_COLOR[r.tag ? r.lvl : 3]}"/>` : ""))
+      .join("");
+    const cloudSvg = `
+      <svg viewBox="0 0 ${n} ${CH}" preserveAspectRatio="none" class="chart" style="height:${CH}px">
+        ${nightSvg(CH)}${selSvg(CH)}${gridSvg(CH)}
+        ${cloudRects.join("")}
+        ${limLine2(lim.ceil_limit, "lim bad")}${limLine2(lim.ceil_warn, "lim warn")}
+        ${ceilMarks}
+        ${nowSvg(CH)}
+      </svg>`;
+    function limLine2(v, cls) {
+      return v && v < cTop ? `<line x1="0" x2="${n}" y1="${cy(v)}" y2="${cy(v)}" class="${cls}"/>` : "";
+    }
+    const step = cTop > 6000 ? 2000 : 1000;
+    const cloudAxis = [];
+    for (let v = 0; v <= cTop; v += step) cloudAxis.push(`<span style="top:${(cy(v) / CH) * 100}%">${v / 1000}k</span>`);
+
+    // Detail der gewählten Stunde
+    const r = rows[sel];
+    const lvlTxt = r.tag ? ["Fliegbar", "Eingeschränkt", "Nicht fliegbar"][r.lvl] : "Nacht";
+    const gust = r.wg > r.ws + 2 ? ` G${r.wg}` : "";
+    const detail = [
+      ["Wind", r.ws ? `${String(r.wd).padStart(3, "0")}° / ${r.ws} kt${gust}` : "Windstill"],
+      ["Seitenwind", `${r.xw} kt · Bahn ${r.bahn}`],
+      ["Wolken", describeLayers(r.wk)],
+      ["Untergrenze", r.ceil != null ? `${Number(r.ceil).toLocaleString("de-DE")} ft` : "keine"],
+      ["Sicht", r.vis == null ? "–" : r.vis >= 10000 ? "über 10 km" : `${(r.vis / 1000).toLocaleString("de-DE", { maximumFractionDigits: 1 })} km`],
+      ["Niederschlag", `${String(r.pr).replace(".", ",")} mm`],
+    ];
+    if (r.gafor) detail.push(["GAFOR", r.gafor]);
+
+    return `
+      <div class="tl" style="--n:${n}">
+        <div class="tl-grid">
+          <div class="axis"></div>
+          <div class="bar">${segs}<div class="nowmark" style="left:${nowFrac * 100}%"></div></div>
+          <div class="axis"></div>
+          <div class="hours">${labels}</div>
+
+          <div class="cap">Wind, Böen und Seitenwind (kt)</div>
+          <div class="axis">${windAxis}</div>
+          <div class="plot">${windSvg}</div>
+          <div class="cap">Wolken und Untergrenze (ft über Platz)</div>
+          <div class="axis">${cloudAxis.join("")}</div>
+          <div class="plot">${cloudSvg}</div>
+        </div>
+        <div class="legend">
+          <span><i class="sw" style="background:${LVL_COLOR[0]}"></i>Fliegbar</span>
+          <span><i class="sw" style="background:${LVL_COLOR[1]}"></i>Eingeschränkt</span>
+          <span><i class="sw" style="background:${LVL_COLOR[2]}"></i>Nicht fliegbar</span>
+          <span><i class="sw night"></i>Nacht</span>
+          <span><i class="ln wind"></i>Wind</span>
+          <span><i class="ln gust"></i>Böen</span>
+          <span><i class="sw xw"></i>Seitenwind</span>
+          <span><i class="sw cloud"></i>Wolken (dunkler = dichter)</span>
+          <span><i class="ln ceil"></i>Untergrenze</span>
+        </div>
+        <div class="detail">
+          <div class="detail-head"><span class="dot" style="background:${LVL_COLOR[r.tag ? r.lvl : 3]}"></span><b>${esc(clock.when(r.t))}</b> · ${lvlTxt}${r.q === "metar" ? " · laut METAR" : ""}</div>
+          ${r.why ? `<div class="chips">${r.why.split(", ").map((w) => `<span class="chip">${esc(w)}</span>`).join("")}</div>` : ""}
+          <div class="values">${detail.map(([l, v]) => `<div class="value"><div class="label">${l}</div><div class="val">${esc(v)}</div></div>`).join("")}</div>
+          <div class="hint">Tippe auf eine Stunde für Details. Wolken aus dem ICON-Modell (Druckflächen), Höhen über Platz.</div>
+        </div>
+      </div>`;
+  }
+
+  // -------------------------------------------------- Wind
+
+  _wind() {
+    const a = this._st("jetzt").attributes;
+    const cur = (a.stunden || [])[0] || {};
+    const xwSt = this._st("seitenwind");
+    const runway = Number(a.bahn_kurs) || 0;
+    const lim = a.grenzwerte || {};
+    const wd = cur.wd;
+    const ws = cur.ws || 0;
+    const wg = cur.wg;
+    const xw = cur.xw ?? 0;
+    const lvl = xw >= (lim.xw_limit || 15) ? 2 : xw >= (lim.xw_warn || 8) ? 1 : 0;
+
+    const C = 120;
+    const R = 96;
+    const pt = (r, deg) => [C + r * Math.sin(rad(deg)), C - r * Math.cos(rad(deg))];
+    let s = `<circle cx="${C}" cy="${C}" r="${R}" class="ring"/>`;
+    for (let d = 0; d < 360; d += 10) {
+      const [x1, y1] = pt(R, d);
+      const [x2, y2] = pt(R - (d % 30 === 0 ? 9 : 4), d);
+      s += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="tick"/>`;
+    }
+    for (const [d, l] of [[0, "N"], [90, "O"], [180, "S"], [270, "W"]]) {
+      const [x, y] = pt(R - 20, d);
+      s += `<text x="${x}" y="${y}" class="card-dir">${l}</text>`;
+    }
+    // Bahn
+    s += `<g transform="rotate(${runway} ${C} ${C})">
+      <rect x="${C - 9}" y="${C - 58}" width="18" height="116" rx="2" class="rwy"/>
+      <line x1="${C}" y1="${C - 46}" x2="${C}" y2="${C + 46}" class="rwy-cl"/>
+      <text x="${C}" y="${C + 52}" class="rwy-num" transform="rotate(180 ${C} ${C + 49})">${rwyNum(runway)}</text>
+      <text x="${C}" y="${C - 46}" class="rwy-num" transform="rotate(180 ${C} ${C - 49})">${rwyNum(runway + 180)}</text>
+    </g>`;
+    // Windpfeil: kommt aus wd, zeigt zur Mitte
+    if (typeof wd === "number" && ws > 0) {
+      const [x1, y1] = pt(R + 2, wd);
+      const [x2, y2] = pt(R - 52, wd);
+      s += `<line x1="${x1}" y1="${y1}" x2="${x2}" y2="${y2}" class="arrow" style="stroke:${LVL_COLOR[lvl]}"/>`;
+      const [hx, hy] = pt(R - 62, wd);
+      const [lx, ly] = pt(R - 46, wd - 8);
+      const [rx, ry] = pt(R - 46, wd + 8);
+      s += `<polygon points="${hx},${hy} ${lx},${ly} ${rx},${ry}" style="fill:${LVL_COLOR[lvl]}"/>`;
+    }
+    const compass = `<svg viewBox="0 0 240 240" class="compass" role="img" aria-label="Windrose">${s}</svg>`;
+
+    const xa = xwSt?.attributes || {};
+    const vals = [
+      ["Wind", typeof wd === "number" && ws ? `${String(wd).padStart(3, "0")}° / ${ws} kt` : ws ? `${ws} kt` : "Windstill"],
+      ["Böen", wg && wg > ws + 2 ? `${wg} kt` : "keine"],
+      ["Seitenwind", `${xw} kt`, lvl],
+      ["Gegenwind", xa.gegenwind_kt != null ? `${Math.round(xa.gegenwind_kt)} kt` : "–"],
+      ["Aktive Bahn", cur.bahn || xa.aktive_bahn || "–"],
+    ];
+    return `
+      <div class="wind" data-more="seitenwind">
+        ${compass}
+        <div class="values wind-values">${vals
+          .map(([l, v, lv]) => `<div class="value"><div class="label">${l}</div><div class="val"${lv != null ? ` style="color:${LVL_COLOR[lv]}"` : ""}>${esc(v)}</div></div>`)
+          .join("")}</div>
+      </div>`;
+  }
+
+  // -------------------------------------------------- Meldungen
+
+  _reports() {
+    const clock = this._clock;
+    const metar = this._st("metar");
+    const taf = this._st("taf");
+    const gafor = this._st("gafor");
+    const ma = metar?.attributes || {};
+    let out = "";
+    const age = ma.beobachtet ? ` · vor ${fmtDuration(Date.now() - new Date(ma.beobachtet))}` : "";
+    out += `<div class="block" data-more="metar"><div class="block-head">METAR ${esc(ma.station || "")}${age}</div>
+      <pre>${metar && metar.state && metar.state !== "unknown" ? esc(metar.state) : "Keine aktuelle Meldung"}</pre></div>`;
+    const ta = taf?.attributes || {};
+    out += `<div class="block" data-more="taf"><div class="block-head">TAF ${esc(taf?.state && taf.state !== "unknown" ? taf.state : "")}</div>
+      <pre>${ta.text ? esc(ta.text) : "Keine gültige Vorhersage"}</pre></div>`;
+    const ga = gafor?.attributes || {};
+    const today = clock.dayKey(new Date());
+    let chips;
+    if (!ga.datum) chips = `<span class="dim">Kein GAFOR-Gebiet gewählt oder nicht abrufbar.</span>`;
+    else if (ga.datum !== today) chips = `<span class="dim">Für heute liegt noch kein GAFOR vor (Stand ${esc(ga.datum)}).</span>`;
+    else
+      chips = (ga.fenster || [])
+        .map((w) => {
+          const c = String(w.code || "");
+          const lv = /^[XM]/.test(c) ? 2 : /^D/.test(c) ? 1 : 0;
+          return `<span class="gchip"><span class="dot" style="background:${LVL_COLOR[lv]}"></span>${pad(w.von_utc)}–${pad(w.bis_utc % 24)} UTC <b>${esc(c)}</b></span>`;
+        })
+        .join("");
+    out += `<div class="block" data-more="gafor"><div class="block-head">GAFOR ${esc(ga.gebiet || "")} ${esc(ga.gebietsname || "")}</div><div class="chips">${chips}</div></div>`;
+    return `<div class="reports">${out}</div>`;
+  }
+
+  // -------------------------------------------------- DWD-Übersicht
+
+  _dwd() {
+    const ov = this._st("gafor")?.attributes?.uebersicht;
+    if (!ov) return this._config.ansicht === "dwd" ? `<div class="empty">Keine DWD-Flugwetterübersicht verfügbar.</div>` : "";
+    const secs = ov.abschnitte || [];
+    const body = (sec) => (sec.tabelle ? `<pre>${esc(sec.text)}</pre>` : esc(sec.text).split("\n\n").map((p) => `<p>${p}</p>`).join(""));
+    const first = secs[0];
+    const rest = secs.slice(1);
+    return `
+      <div class="dwd">
+        <div class="block-head">${esc(ov.titel || "Flugwetterübersicht")}</div>
+        <div class="dim small">${esc(ov.gueltig || "")}</div>
+        ${first ? `<div class="sec"><div class="sec-title">${esc(first.titel)}</div>${body(first)}</div>` : ""}
+        ${rest.map((sec) => `<details><summary>${esc(sec.titel)}</summary>${body(sec)}</details>`).join("")}
+        <div class="hint">Quelle: Deutscher Wetterdienst, unverändert übernommen. ${esc(ov.naechste || "")}</div>
+      </div>`;
   }
 }
 
-FlugwetterCard.styles = `
-  :host {
-    --fw-green: #2fbf71; --fw-amber: #f2b33d; --fw-red: #e5484d; --fw-blue: #3b82f6; --fw-purple: #a855f7;
-    --fw-bg1: #0b2545; --fw-bg2: #134074; --fw-panel: rgba(255,255,255,.07); --fw-line: rgba(255,255,255,.12);
-    --fw-text: #f1f5fb; --fw-muted: rgba(241,245,251,.6); --fw-arrow: #ffffff; --fw-runway: #1b1f27;
-  }
-  ha-card { overflow: hidden; border: none; background: radial-gradient(1200px 500px at 50% -10%, var(--fw-bg2), var(--fw-bg1)); color: var(--fw-text); }
-  .wrap { padding: 18px 20px 12px; display: flex; flex-direction: column; gap: 16px; }
-  header { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; }
-  .title { font-size: 26px; font-weight: 700; letter-spacing: -.3px; line-height: 1.1; }
-  .subtitle { color: var(--fw-muted); font-size: 13px; margin-top: 4px; }
-  .clock { display: flex; gap: 16px; text-align: right; }
-  .clock b { display: block; font-size: 22px; font-variant-numeric: tabular-nums; }
-  .clock span { font-size: 11px; color: var(--fw-muted); letter-spacing: .08em; }
-  .lbl-sm { font-size: 11px; text-transform: uppercase; letter-spacing: .1em; color: var(--fw-muted); margin: 2px 0 6px; }
+const FW_CSS = `
+  :host { display: block; }
+  ha-card { height: 100%; overflow: hidden; }
+  .card-header { margin: 0; padding: 12px 16px 0; font-size: var(--ha-card-header-font-size, 24px); font-weight: var(--ha-font-weight-normal, 400); color: var(--ha-card-header-color, var(--primary-text-color)); line-height: 1.4; }
+  .content { padding: 16px; color: var(--primary-text-color); }
+  .divider { height: 1px; background: var(--divider-color); margin: 16px -16px; }
+  .empty, .dim { color: var(--secondary-text-color); }
+  .small { font-size: 12px; }
+  .hint { color: var(--secondary-text-color); font-size: 12px; margin-top: 8px; }
+  [data-more] { cursor: pointer; }
+  .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex: none; }
 
-  .hero { display: grid; grid-template-columns: 1fr minmax(220px, 300px) 1fr; gap: 18px; align-items: center; }
-  @media (max-width: 860px) { .hero { grid-template-columns: 1fr; } .compass-col { order: -1; } }
-  .col { display: flex; flex-direction: column; gap: 8px; }
-  .status { display: flex; gap: 14px; align-items: flex-start; background: var(--fw-panel); border-radius: 16px; padding: 14px 16px; border-left: 6px solid var(--c); }
-  .status .dotbig { width: 18px; height: 18px; border-radius: 50%; background: var(--c); box-shadow: 0 0 18px var(--c); margin-top: 5px; flex: none; }
-  .status .st { font-size: 22px; font-weight: 700; }
-  .status.small { padding: 10px 14px; } .status.small .st { font-size: 16px; } .status.small .dotbig { width: 12px; height: 12px; margin-top: 4px; }
-  .sub { color: var(--fw-muted); font-size: 13px; margin-top: 2px; }
+  .now-head { display: flex; align-items: center; gap: 12px; }
+  .badge { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex: none;
+    background: color-mix(in srgb, var(--c) 20%, transparent); color: var(--c); }
+  .badge ha-icon { --mdc-icon-size: 26px; }
+  .primary { font-size: 20px; font-weight: 500; line-height: 1.3; }
+  .secondary { color: var(--secondary-text-color); font-size: 13px; }
+  .headline { margin-top: 12px; font-size: 16px; }
   .chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
-  .chips span { font-size: 12px; padding: 3px 9px; border-radius: 999px; background: rgba(255,255,255,.1); }
+  .chip, .gchip { border: 1px solid var(--divider-color); border-radius: 16px; padding: 2px 10px; font-size: 12px; display: inline-flex; align-items: center; gap: 6px; }
+  .values { display: grid; grid-template-columns: repeat(auto-fit, minmax(120px, 1fr)); gap: 10px 16px; margin-top: 14px; }
+  .wind-values { flex: 1 1 200px; margin-top: 0; align-content: center; grid-template-columns: repeat(auto-fit, minmax(100px, 1fr)); }
+  .label { color: var(--secondary-text-color); font-size: 12px; }
+  .val { font-size: 14px; }
+  .days { display: flex; flex-wrap: wrap; gap: 8px 24px; margin-top: 14px; }
+  .day { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .day-name { color: var(--secondary-text-color); }
 
-  .compass { width: 100%; max-width: 300px; margin: 0 auto; display: block; }
-  .compass .card { fill: var(--fw-text); font-size: 17px; font-weight: 700; }
-  .compass .num { fill: var(--fw-muted); font-size: 11px; font-weight: 600; }
-  .compass .rwy { fill: #fff; font-size: 13px; font-weight: 800; font-family: ui-monospace, monospace; }
-  .compass .lbl { fill: var(--fw-bg1); font-size: 11px; font-weight: 700; }
-  .windrow { display: flex; justify-content: center; gap: 8px; }
-  .windrow > div { background: var(--fw-panel); border-radius: 12px; padding: 6px 16px; text-align: center; min-width: 70px; }
-  .windrow b { font-size: 22px; display: block; } .windrow span { font-size: 11px; color: var(--fw-muted); }
-  .windrow .gustv b { color: var(--fw-amber); }
-
-  .cat { align-self: flex-start; font-weight: 800; font-size: 20px; letter-spacing: .05em; padding: 4px 16px; border-radius: 10px; background: var(--c); color: #0b1220; }
-  .obs { list-style: none; margin: 0; padding: 0; background: var(--fw-panel); border-radius: 14px; }
-  .obs li { display: flex; justify-content: space-between; padding: 9px 14px; border-bottom: 1px solid var(--fw-line); font-size: 14px; }
-  .obs li:last-child { border: none; } .obs span { color: var(--fw-muted); }
-  .xw { display: flex; gap: 14px; align-items: center; background: var(--fw-panel); border-radius: 14px; padding: 12px 14px; border-left: 6px solid var(--c); }
-  .xw .big { font-size: 28px; font-weight: 800; color: var(--c); line-height: 1; } .xw .big small { font-size: 14px; color: var(--fw-muted); }
-  .rwybadge { background: var(--fw-runway); color: #fff; font-family: monospace; font-weight: 700; font-size: 18px; padding: 14px 10px; border-radius: 6px 6px 2px 2px; border-bottom: 3px dashed #fff; }
-
-  .timeline { background: var(--fw-panel); border-radius: 16px; padding: 10px 12px 8px; }
-  .tabs { display: flex; gap: 6px; align-items: center; margin-bottom: 8px; }
-  .tabs button { background: transparent; color: var(--fw-text); border: 1px solid var(--fw-line); border-radius: 999px; padding: 5px 14px; cursor: pointer; font: inherit; font-size: 13px; }
-  .tabs button.on { background: var(--fw-text); color: var(--fw-bg1); font-weight: 700; }
-  .tabs .hint { margin-left: auto; font-size: 11px; color: var(--fw-muted); }
-  .tl-scroll { overflow-x: auto; scrollbar-width: thin; }
-  .tl { position: relative; }
-  .cols { display: flex; }
-  .hr { flex: 1 1 0; min-width: 56px; text-align: center; padding: 6px 0; border-radius: 10px; font-size: 13px; }
-  .hr.cur { background: rgba(255,255,255,.1); outline: 1px solid rgba(255,255,255,.3); }
-  .hr .h { font-weight: 700; font-variant-numeric: tabular-nums; }
-  .hr .pill { height: 6px; margin: 6px 8px; border-radius: 3px; }
-  .hr .arrow { width: 22px; height: 22px; fill: var(--fw-text); display: block; margin: 2px auto; }
-  .hr .v { font-weight: 700; } .hr .g { color: var(--fw-amber); font-size: 11px; margin-left: 2px; }
-  .hr .s { color: var(--fw-muted); font-size: 12px; margin-top: 2px; } .hr .s small { font-size: 9px; }
-  .t-amber { color: var(--fw-amber) !important; font-weight: 700; } .t-red { color: var(--fw-red) !important; font-weight: 700; }
-  .chartwrap { position: relative; margin-top: 4px; }
-  .chart { display: block; width: 100%; height: 100%; }
+  .tl-grid { display: grid; grid-template-columns: 30px 1fr; row-gap: 4px; }
+  .bar { position: relative; display: grid; grid-template-columns: repeat(var(--n), 1fr); gap: 1px; height: 26px; border-radius: 6px; overflow: hidden; }
+  .seg { cursor: pointer; opacity: .85; }
+  .seg:hover { opacity: 1; }
+  .seg.night { background: repeating-linear-gradient(135deg, var(--secondary-background-color) 0 4px, var(--divider-color) 4px 6px); }
+  .seg.sel { box-shadow: inset 0 0 0 2px var(--primary-text-color); opacity: 1; }
+  .nowmark { position: absolute; top: 0; bottom: 0; width: 2px; background: var(--primary-text-color); pointer-events: none; }
+  .hours { display: grid; grid-template-columns: repeat(var(--n), 1fr); font-size: 11px; color: var(--secondary-text-color); height: 16px; }
+  .hl { cursor: pointer; white-space: nowrap; overflow: visible; }
+  .hl b { color: var(--primary-text-color); font-weight: 500; }
+  .axis { position: relative; font-size: 10px; color: var(--secondary-text-color); }
+  .axis span { position: absolute; right: 4px; transform: translateY(-50%); }
+  .cap { grid-column: 1 / -1; font-size: 12px; color: var(--secondary-text-color); margin-top: 12px; }
+  .plot { position: relative; }
+  .chart { display: block; width: 100%; overflow: visible; border-bottom: 1px solid var(--divider-color); }
   .chart * { vector-effect: non-scaling-stroke; }
-  .chart .wind { fill: none; stroke: var(--fw-text); stroke-width: 2.5; stroke-linejoin: round; }
-  .chart .gust { fill: none; stroke: var(--fw-amber); stroke-width: 2; stroke-dasharray: 5 4; }
-  .chart .dot { fill: var(--fw-text); }
-  .chart .lim-red { stroke: var(--fw-red); stroke-width: 1; stroke-dasharray: 2 4; }
-  .chart .lim-amber { stroke: var(--fw-amber); stroke-width: 1; stroke-dasharray: 2 4; }
-  .limt { position: absolute; left: 4px; color: var(--fw-muted); font-size: 10px; }
-  .legend { display: flex; gap: 14px; flex-wrap: wrap; font-size: 11px; color: var(--fw-muted); margin-top: 4px; }
-  .legend i { display: inline-block; width: 16px; height: 0; vertical-align: middle; margin-right: 4px; }
-  .lg-w { border-top: 2.5px solid var(--fw-text); } .lg-g { border-top: 2px dashed var(--fw-amber); }
-  .empty { padding: 18px; text-align: center; color: var(--fw-muted); }
+  .nightbg { fill: var(--secondary-background-color); opacity: .7; }
+  .selbg { fill: var(--primary-text-color); opacity: .06; }
+  .midnight { stroke: var(--divider-color); stroke-width: 1; }
+  .nowline { stroke: var(--primary-text-color); stroke-width: 1.5; }
+  .lim { stroke-width: 1; stroke-dasharray: 4 3; }
+  .lim.bad { stroke: ${LVL_COLOR[2]}; }
+  .lim.warn { stroke: ${LVL_COLOR[1]}; }
+  polyline.wind { fill: none; stroke: var(--primary-color); stroke-width: 2; }
+  polyline.gust { fill: none; stroke: var(--primary-color); stroke-width: 1.5; stroke-dasharray: 3 3; opacity: .7; }
+  .xwarea { fill: var(--secondary-text-color); opacity: .18; }
+  .cloud { fill: var(--primary-text-color); }
+  .ceil { stroke-width: 3; stroke-linecap: round; }
+  .legend { display: flex; flex-wrap: wrap; gap: 4px 14px; font-size: 11px; color: var(--secondary-text-color); margin-top: 8px; }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; }
+  .legend .sw { display: inline-block; width: 12px; height: 10px; border-radius: 2px; }
+  .legend .sw.night { background: repeating-linear-gradient(135deg, var(--secondary-background-color) 0 3px, var(--divider-color) 3px 5px); }
+  .legend .sw.xw { background: var(--secondary-text-color); opacity: .35; }
+  .legend .sw.cloud { background: var(--primary-text-color); opacity: .4; }
+  .legend .ln { display: inline-block; width: 14px; border-top: 2px solid var(--primary-color); }
+  .legend .ln.gust { border-top-style: dashed; opacity: .7; }
+  .legend .ln.ceil { border-top: 3px solid var(--secondary-text-color); }
+  .detail { margin-top: 12px; padding: 12px; border-radius: 12px; background: var(--secondary-background-color); }
+  .detail-head { display: flex; align-items: center; gap: 8px; font-size: 14px; }
+  .detail .values { margin-top: 10px; }
 
-  .bottom { display: grid; grid-template-columns: auto 1fr; gap: 18px; align-items: start; }
-  @media (max-width: 860px) { .bottom { grid-template-columns: 1fr; } }
-  .gfs { display: flex; gap: 8px; }
-  .gf { background: var(--fw-panel); border-radius: 12px; padding: 8px 12px; text-align: center; border-top: 4px solid var(--c); min-width: 74px; }
-  .gf .gc { font-size: 22px; font-weight: 800; color: var(--c); } .gf .gt { font-size: 12px; } .gf .gu { font-size: 10px; color: var(--fw-muted); }
-  .codes code { display: block; font-family: ui-monospace, Menlo, monospace; font-size: 12.5px; background: rgba(0,0,0,.25); border-radius: 10px; padding: 8px 10px; margin-bottom: 8px; white-space: pre-wrap; word-break: break-word; }
-  footer { font-size: 11px; color: var(--fw-muted); text-align: center; border-top: 1px solid var(--fw-line); padding-top: 8px; }
+  .wind { display: flex; flex-wrap: wrap; gap: 16px; align-items: center; justify-content: center; }
+  .compass { flex: 0 0 200px; width: 200px; display: block; }
+  .ring { fill: none; stroke: var(--divider-color); stroke-width: 2; }
+  .tick { stroke: var(--secondary-text-color); stroke-width: 1; opacity: .6; }
+  .card-dir { fill: var(--secondary-text-color); font-size: 13px; font-weight: 500; text-anchor: middle; dominant-baseline: central; }
+  .rwy { fill: var(--secondary-text-color); opacity: .35; }
+  .rwy-cl { stroke: var(--card-background-color, #fff); stroke-width: 1.5; stroke-dasharray: 6 5; }
+  .rwy-num { fill: var(--primary-text-color); font-size: 10px; font-weight: 600; text-anchor: middle; dominant-baseline: central; }
+  .arrow { stroke-width: 4; stroke-linecap: round; }
+
+  .reports { display: grid; gap: 12px; }
+  .block-head { font-size: 14px; font-weight: 500; margin-bottom: 6px; }
+  pre { margin: 0; padding: 8px 12px; border-radius: 8px; background: var(--secondary-background-color); font-family: var(--code-font-family, ui-monospace, monospace);
+    font-size: 12px; line-height: 1.5; white-space: pre-wrap; word-break: break-word; }
+  .dwd p { margin: 6px 0; font-size: 14px; line-height: 1.5; }
+  .dwd .sec { margin-top: 10px; }
+  .sec-title { font-size: 13px; color: var(--secondary-text-color); }
+  details { border-top: 1px solid var(--divider-color); padding: 8px 0; }
+  details:first-of-type { margin-top: 10px; }
+  summary { cursor: pointer; font-size: 14px; }
+  details[open] summary { margin-bottom: 4px; }
 `;
 
 if (!customElements.get("flugwetter-card")) customElements.define("flugwetter-card", FlugwetterCard);
@@ -463,7 +652,10 @@ if (!customElements.get("flugwetter-card")) customElements.define("flugwetter-ca
 const FW_LABELS = {
   device_id: "Flugplatz",
   device_ids: "Flugplätze",
+  ansicht: "Ansicht",
   title: "Titel (optional)",
+  stunden: "Stunden im Zeitstrahl",
+  wolken_max: "Wolkendiagramm bis (ft über Platz)",
 };
 
 async function fwEnsureHaForm() {
@@ -514,10 +706,19 @@ class FlugwetterFormEditor extends HTMLElement {
 
 class FlugwetterCardEditor extends FlugwetterFormEditor {
   get _schema() {
-    return [
+    const view = this._config?.ansicht || "komplett";
+    const schema = [
       { name: "device_id", required: true, selector: { device: { filter: { integration: FW_DOMAIN } } } },
+      { name: "ansicht", selector: { select: { mode: "dropdown", options: Object.entries(FW_VIEWS).map(([value, label]) => ({ value, label })) } } },
       { name: "title", selector: { text: {} } },
     ];
+    if (view === "zeitstrahl" || view === "komplett") {
+      schema.push(
+        { name: "stunden", selector: { number: { min: 6, max: 36, step: 1, mode: "slider" } } },
+        { name: "wolken_max", selector: { number: { min: 3000, max: 15000, step: 1000, unit_of_measurement: "ft", mode: "box" } } },
+      );
+    }
+    return schema;
   }
 }
 if (!customElements.get("flugwetter-card-editor")) customElements.define("flugwetter-card-editor", FlugwetterCardEditor);
@@ -559,12 +760,24 @@ class FlugwetterDashboardStrategy extends HTMLElement {
         const dev = hass.devices?.[id];
         const name = dev?.name_by_user || dev?.name || "Flugwetter";
         const icao = name.split(" ")[0];
+        const ent = fwEntities(hass, id);
+        const card = (ansicht, extra = {}) => ({ type: "custom:flugwetter-card", device_id: id, ansicht, ...extra });
+        const tile = (key) =>
+          ent[key] ? { type: "tile", entity: ent[key], state_content: ["state", "fenster"], grid_options: { columns: 6 } } : null;
+        const heading = (h, icon) => ({ type: "heading", heading: h, icon, heading_style: "title" });
         return {
           title: ids.length > 1 ? icao : "Flugwetter",
           path: icao.toLowerCase().replace(/[^a-z0-9]/g, "") || undefined,
           icon: "mdi:airplane",
-          type: "panel",
-          cards: [{ type: "custom:flugwetter-card", device_id: id }],
+          type: "sections",
+          max_columns: 3,
+          sections: [
+            { type: "grid", cards: [heading(name, "mdi:airport"), card("jetzt"), tile("flugtag_heute"), tile("flugtag_morgen")].filter(Boolean) },
+            { type: "grid", column_span: 2, cards: [heading("Nächste 24 Stunden", "mdi:chart-timeline-variant"), card("zeitstrahl")] },
+            { type: "grid", cards: [heading("Wind", "mdi:windsock"), card("wind")] },
+            { type: "grid", column_span: 2, cards: [heading("Meldungen", "mdi:text-box-outline"), card("meldungen")] },
+            { type: "grid", column_span: 3, cards: [heading("DWD-Flugwetterübersicht", "mdi:file-document-outline"), card("dwd")] },
+          ],
         };
       }),
     };
@@ -574,7 +787,12 @@ if (!customElements.get("ll-strategy-dashboard-flugwetter")) customElements.defi
 
 window.customCards = window.customCards || [];
 if (!window.customCards.some((c) => c.type === "flugwetter-card")) {
-  window.customCards.push({ type: "flugwetter-card", name: "Flugwetter", description: "Flugtag-Ampel, Windrose, Stundenverlauf, GAFOR und METAR", preview: false });
+  window.customCards.push({
+    type: "flugwetter-card",
+    name: "Flugwetter",
+    description: "Flugwetter jetzt, Zeitstrahl mit Wind und Wolkenschichten, Windrose, METAR/TAF/GAFOR und DWD-Übersicht",
+    preview: false,
+  });
 }
 window.customStrategies = window.customStrategies || [];
 if (!window.customStrategies.some((c) => c.type === "flugwetter")) {
@@ -582,8 +800,8 @@ if (!window.customStrategies.some((c) => c.type === "flugwetter")) {
     type: "flugwetter",
     strategyType: "dashboard",
     name: "Flugwetter",
-    description: "Flugtag-Ampel mit Windrose, Stundenverlauf, GAFOR, METAR und TAF für deine Flugplätze.",
+    description: "Ist jetzt Flugwetter, und wann wird es fliegbar? Zeitstrahl, Wolken, Wind, METAR, TAF, GAFOR und DWD-Übersicht für deine Flugplätze.",
     documentationURL: "https://github.com/",
   });
 }
-console.info(`%c FLUGWETTER %c ${FW_VERSION} `, "background:#134074;color:#fff;font-weight:700", "background:#2fbf71;color:#0b1220");
+console.info(`%c FLUGWETTER %c ${FW_VERSION} `, "background:var(--primary-color,#03a9f4);color:#fff;font-weight:700", "");

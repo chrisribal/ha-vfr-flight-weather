@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 DOMAIN = "flugwetter"
-VERSION = "0.1.0"
+VERSION = "0.2.0"
 
 # Konfiguration (config entry data)
 CONF_ICAO = "icao"

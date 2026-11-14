@@ -37,7 +37,18 @@ from .const import (
     GAFOR_NONE,
     UPDATE_INTERVAL,
 )
-from .evaluation import HourRow, day_keys, evaluate_hours, summarize_day
+from .evaluation import (
+    HourRow,
+    apply_metar,
+    day_bounds_list,
+    day_keys,
+    evaluate_hours,
+    summarize_day,
+    summarize_now,
+)
+
+METAR_FOR_NOW_MAX_AGE = 90 * 60  # Sekunden: so lange gilt eine Beobachtung als "jetzt"
+HOURS_AHEAD = 36
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -53,6 +64,10 @@ class FlugwetterData:
     gafor_region: GaforRegion | None = None
     gafor_date: date | None = None
     rows: list[HourRow] = field(default_factory=list)
+    upcoming: list[HourRow] = field(default_factory=list)
+    now: dict[str, Any] = field(default_factory=dict)
+    days: list[dict[str, str]] = field(default_factory=list)
+    elevation_m: float | None = None
     today: dict[str, Any] = field(default_factory=dict)
     tomorrow: dict[str, Any] = field(default_factory=dict)
     forecast_time: datetime | None = None
@@ -145,16 +160,28 @@ class FlugwetterCoordinator(DataUpdateCoordinator[FlugwetterData]):
         tz = ZoneInfo(self.hass.config.time_zone)
         local_now = dt_util.now()
         gafor_valid = data.gafor_region is not None and data.gafor_date == local_now.date()
+        gafor_windows = data.gafor_region.windows if gafor_valid and data.gafor_region else []
+        gafor_date = data.gafor_date if gafor_valid else None
+        lat, lon = float(s[CONF_LATITUDE]), float(s[CONF_LONGITUDE])
         data.rows = evaluate_hours(
-            self._forecast or {},
-            self.limits,
-            self.runway,
-            data.gafor_region.windows if gafor_valid and data.gafor_region else [],
-            data.gafor_date if gafor_valid else None,
-            tz,
+            self._forecast or {}, self.limits, self.runway, gafor_windows, gafor_date, tz, lat, lon
         )
+
+        # Laufende Stunde: frische METAR-Beobachtung statt Modell
+        metar = data.metar
+        if metar and isinstance(metar.get("obsTime"), (int, float)) and ts - metar["obsTime"] <= METAR_FOR_NOW_MAX_AGE:
+            for i, row in enumerate(data.rows):
+                if row.t <= local_now < row.end:
+                    data.rows[i] = apply_metar(row, metar, self.limits, self.runway, gafor_windows, gafor_date)
+                    break
+
+        data.upcoming = [r for r in data.rows if r.end > local_now][:HOURS_AHEAD]
+        data.now = summarize_now(data.rows, local_now)
+        data.days = day_bounds_list(data.rows, lat, lon, tz)
         today, tomorrow = day_keys(local_now)
-        data.today = summarize_day(data.rows, today)
+        data.today = summarize_day(data.rows, today, local_now)
         data.tomorrow = summarize_day(data.rows, tomorrow)
         data.forecast_time = self._forecast_at
+        if self._forecast and isinstance(self._forecast.get("elevation"), (int, float)):
+            data.elevation_m = float(self._forecast["elevation"])
         return data

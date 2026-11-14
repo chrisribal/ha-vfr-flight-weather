@@ -1,0 +1,53 @@
+{
+  "entity": {
+    "sensor": {
+      "jetzt": {
+        "default": "mdi:airplane",
+        "state": {
+          "fliegbar": "mdi:airplane-takeoff",
+          "eingeschraenkt": "mdi:airplane-alert",
+          "nicht_fliegbar": "mdi:airplane-off",
+          "nacht": "mdi:weather-night",
+          "keine_daten": "mdi:help-circle-outline"
+        }
+      },
+      "flugtag_heute": {
+        "default": "mdi:calendar-today",
+        "state": {
+          "gut": "mdi:airplane",
+          "eingeschraenkt": "mdi:airplane-alert",
+          "schlecht": "mdi:airplane-off",
+          "vorbei": "mdi:weather-sunset-down",
+          "keine_daten": "mdi:help-circle-outline"
+        }
+      },
+      "flugtag_morgen": {
+        "default": "mdi:calendar-arrow-right",
+        "state": {
+          "gut": "mdi:airplane",
+          "eingeschraenkt": "mdi:airplane-alert",
+          "schlecht": "mdi:airplane-off",
+          "keine_daten": "mdi:help-circle-outline"
+        }
+      },
+      "naechstes_flugfenster": {
+        "default": "mdi:airplane-clock"
+      },
+      "wolkenuntergrenze": {
+        "default": "mdi:weather-cloudy-arrow-right"
+      },
+      "metar": {
+        "default": "mdi:text-box-outline"
+      },
+      "taf": {
+        "default": "mdi:text-box-multiple-outline"
+      },
+      "gafor": {
+        "default": "mdi:map-legend"
+      },
+      "seitenwind": {
+        "default": "mdi:windsock"
+      }
+    }
+  }
+}

@@ -72,12 +72,29 @@
   },
   "entity": {
     "sensor": {
+      "jetzt": {
+        "name": "Flying weather now",
+        "state": {
+          "fliegbar": "Flyable",
+          "eingeschraenkt": "Limited",
+          "nicht_fliegbar": "Not flyable",
+          "nacht": "Night",
+          "keine_daten": "No data"
+        }
+      },
+      "naechstes_flugfenster": {
+        "name": "Next flight window"
+      },
+      "wolkenuntergrenze": {
+        "name": "Cloud ceiling"
+      },
       "flugtag_heute": {
         "name": "Flying day today",
         "state": {
           "gut": "Good flying day",
           "eingeschraenkt": "Limited",
           "schlecht": "No flying weather",
+          "vorbei": "Day over",
           "keine_daten": "No data"
         }
       },
@@ -87,6 +104,7 @@
           "gut": "Good flying day",
           "eingeschraenkt": "Limited",
           "schlecht": "No flying weather",
+          "vorbei": "Day over",
           "keine_daten": "No data"
         }
       },

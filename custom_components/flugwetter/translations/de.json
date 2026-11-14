@@ -10,7 +10,7 @@
       },
       "details": {
         "title": "{icao} einrichten",
-        "description": "Flugplatz {found}. Wähle die nächste METAR- und TAF-Station und dein GAFOR-Gebiet. Die Ampel bewertet nur Stunden zwischen Sonnenauf- und -untergang. Sie ersetzt keine Flugvorbereitung.",
+        "description": "Flugplatz {found}. Wähle die nächste METAR- und TAF-Station und dein GAFOR-Gebiet. Als Flugtag zählt die Zeit zwischen Beginn und Ende der bürgerlichen Dämmerung (BDA–BDE). Die Ampel ersetzt keine Flugvorbereitung.",
         "data": {
           "name": "Name",
           "latitude": "Breitengrad",
@@ -72,12 +72,29 @@
   },
   "entity": {
     "sensor": {
+      "jetzt": {
+        "name": "Flugwetter jetzt",
+        "state": {
+          "fliegbar": "Fliegbar",
+          "eingeschraenkt": "Eingeschränkt",
+          "nicht_fliegbar": "Nicht fliegbar",
+          "nacht": "Nacht",
+          "keine_daten": "Keine Daten"
+        }
+      },
+      "naechstes_flugfenster": {
+        "name": "Nächstes Flugfenster"
+      },
+      "wolkenuntergrenze": {
+        "name": "Wolkenuntergrenze"
+      },
       "flugtag_heute": {
         "name": "Flugtag heute",
         "state": {
           "gut": "Guter Flugtag",
           "eingeschraenkt": "Eingeschränkt",
           "schlecht": "Kein Flugwetter",
+          "vorbei": "Tag vorbei",
           "keine_daten": "Keine Daten"
         }
       },
@@ -87,6 +104,7 @@
           "gut": "Guter Flugtag",
           "eingeschraenkt": "Eingeschränkt",
           "schlecht": "Kein Flugwetter",
+          "vorbei": "Tag vorbei",
           "keine_daten": "Keine Daten"
         }
       },

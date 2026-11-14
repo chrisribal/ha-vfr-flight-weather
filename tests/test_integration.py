@@ -83,14 +83,22 @@ async def test_full_setup(hass: HomeAssistant) -> None:
         assert result["title"] == "EDAH Heringsdorf"
         await hass.async_block_till_done()
 
+        jetzt = hass.states.get("sensor.edah_heringsdorf_flugwetter_jetzt")
+        assert jetzt is not None, [s.entity_id for s in hass.states.async_all()]
+        assert jetzt.state in ("fliegbar", "eingeschraenkt", "nacht")
+        assert jetzt.attributes["bahn_kurs"] == 102
+        assert jetzt.attributes["bahnen"] == "10/28"
+        stunden = jetzt.attributes["stunden"]
+        assert 1 <= len(stunden) <= 36 and stunden[0]["q"] == "metar" and stunden[0]["ceil"] == 3000
+        assert jetzt.attributes["naechstes_fenster_start"] is not None
+        assert hass.states.get("sensor.edah_heringsdorf_nachstes_flugfenster") is not None
+        ceil = hass.states.get("sensor.edah_heringsdorf_wolkenuntergrenze")
+        assert ceil is not None and float(ceil.state) == 3000
         heute = hass.states.get("sensor.edah_heringsdorf_flugtag_heute")
-        assert heute is not None, [s.entity_id for s in hass.states.async_all()]
-        assert heute.attributes["bahn_kurs"] == 102
-        assert heute.attributes["bahnen"] == "10/28"
+        assert heute.state in ("gut", "eingeschraenkt", "vorbei")
         morgen = hass.states.get("sensor.edah_heringsdorf_flugtag_morgen")
         assert morgen.state == "gut"
-        assert morgen.attributes["fenster"] == "08:00–16:00"
-        assert len(morgen.attributes["stunden"]) == 8
+        assert __import__("re").fullmatch(r"\d\d:\d\d–\d\d:\d\d", morgen.attributes["fenster"])
 
         metar = hass.states.get("sensor.edah_heringsdorf_metar")
         assert metar.state.startswith("METAR EDAH")

@@ -13,16 +13,21 @@ from homeassistant.components.sensor import (
     SensorEntityDescription,
     SensorStateClass,
 )
-from homeassistant.const import UnitOfSpeed
+from homeassistant.const import UnitOfLength, UnitOfSpeed
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
-from homeassistant.util import dt as dt_util
 
 from .const import CONF_GAFOR_REGION, CONF_ICAO, CONF_METAR_STATION, DOMAIN, VERSION
 from .coordinator import FlugwetterConfigEntry, FlugwetterCoordinator, FlugwetterData
-from .evaluation import STATUS_OPTIONS, crosswind, day_keys, runway_designator
+from .evaluation import (
+    NOW_OPTIONS,
+    STATUS_OPTIONS,
+    crosswind,
+    describe_layers,
+    runway_designator,
+)
 
 PARALLEL_UPDATES = 0
 
@@ -33,36 +38,59 @@ class FlugwetterSensorDescription(SensorEntityDescription):
 
     value_fn: Callable[[FlugwetterCoordinator, FlugwetterData], Any]
     attr_fn: Callable[[FlugwetterCoordinator, FlugwetterData], dict[str, Any]] | None = None
-    unrecorded: frozenset[str] = frozenset()
 
 
 def _day_attrs(key: str) -> Callable[[FlugwetterCoordinator, FlugwetterData], dict[str, Any]]:
     def fn(coord: FlugwetterCoordinator, data: FlugwetterData) -> dict[str, Any]:
         summary = getattr(data, key)
-        today, tomorrow = day_keys(dt_util.now())
-        day = today if key == "today" else tomorrow
-        rows = [r.as_dict() for r in data.rows if r.d == day]
-        attrs: dict[str, Any] = {
+        return {
             "stufe": summary.get("stufe"),
             "fenster": summary.get("fenster"),
             "gruende": summary.get("gruende", []),
             "gruen_stunden": summary.get("gruen_h", 0),
-            "stunden": rows,
         }
-        if key == "today":
-            s = coord.settings
-            attrs.update(
-                {
-                    "icao": s.get(CONF_ICAO),
-                    "bahn_kurs": coord.runway,
-                    "bahnen": f"{runway_designator(coord.runway)}/{runway_designator(coord.runway + 180)}",
-                    "grenzwerte": coord.limits,
-                    "vorhersage_stand": data.forecast_time.isoformat() if data.forecast_time else None,
-                }
-            )
-        return attrs
 
     return fn
+
+
+def _now_attrs(coord: FlugwetterCoordinator, data: FlugwetterData) -> dict[str, Any]:
+    s = coord.settings
+    n = data.now
+    return {
+        "stufe": n.get("stufe"),
+        "gruende": n.get("gruende", []),
+        "quelle": n.get("quelle"),
+        "fliegbar_bis": n.get("fliegbar_bis"),
+        "naechstes_fenster_start": n.get("fenster_start"),
+        "naechstes_fenster_ende": n.get("fenster_ende"),
+        "naechstes_fenster_stufe": n.get("fenster_stufe"),
+        "icao": s.get(CONF_ICAO),
+        "bahn_kurs": coord.runway,
+        "bahnen": f"{runway_designator(coord.runway)}/{runway_designator(coord.runway + 180)}",
+        "platzhoehe_ft": round(data.elevation_m * 3.28084) if data.elevation_m is not None else None,
+        "grenzwerte": coord.limits,
+        "tage": data.days,
+        "stunden": [r.as_dict() for r in data.upcoming],
+        "vorhersage_stand": data.forecast_time.isoformat() if data.forecast_time else None,
+    }
+
+
+def _next_window(coord: FlugwetterCoordinator, data: FlugwetterData) -> datetime | None:
+    n = data.now
+    if n.get("fenster_stufe") != 0 or not n.get("fenster_start"):
+        return None
+    return datetime.fromisoformat(n["fenster_start"])
+
+
+def _ceiling_value(coord: FlugwetterCoordinator, data: FlugwetterData) -> int | None:
+    return data.upcoming[0].ceil if data.upcoming else None
+
+
+def _ceiling_attrs(coord: FlugwetterCoordinator, data: FlugwetterData) -> dict[str, Any]:
+    if not data.upcoming:
+        return {}
+    r = data.upcoming[0]
+    return {"quelle": r.quelle, "bewoelkung": describe_layers(r.wolken), "wolken": [[ft, pct] for ft, pct in r.wolken]}
 
 
 def _metar_attrs(coord: FlugwetterCoordinator, data: FlugwetterData) -> dict[str, Any]:
@@ -125,10 +153,35 @@ def _gafor_attrs(coord: FlugwetterCoordinator, data: FlugwetterData) -> dict[str
         "gebietsname": reg.name if reg else None,
         "datum": data.gafor_date.isoformat() if data.gafor_date else None,
         "fenster": [{"von_utc": w.start_utc, "bis_utc": w.end_utc, "code": w.code} for w in reg.windows] if reg else [],
+        "uebersicht": reg.overview if reg else None,
     }
 
 
 SENSORS: tuple[FlugwetterSensorDescription, ...] = (
+    FlugwetterSensorDescription(
+        key="jetzt",
+        translation_key="jetzt",
+        device_class=SensorDeviceClass.ENUM,
+        options=NOW_OPTIONS,
+        value_fn=lambda c, d: d.now.get("status"),
+        attr_fn=_now_attrs,
+    ),
+    FlugwetterSensorDescription(
+        key="naechstes_flugfenster",
+        translation_key="naechstes_flugfenster",
+        device_class=SensorDeviceClass.TIMESTAMP,
+        value_fn=_next_window,
+        attr_fn=lambda c, d: {"ende": d.now.get("fenster_ende")} if d.now.get("fenster_stufe") == 0 else {},
+    ),
+    FlugwetterSensorDescription(
+        key="wolkenuntergrenze",
+        translation_key="wolkenuntergrenze",
+        state_class=SensorStateClass.MEASUREMENT,
+        native_unit_of_measurement=UnitOfLength.FEET,
+        suggested_display_precision=0,
+        value_fn=_ceiling_value,
+        attr_fn=_ceiling_attrs,
+    ),
     FlugwetterSensorDescription(
         key="flugtag_heute",
         translation_key="flugtag_heute",
@@ -136,7 +189,6 @@ SENSORS: tuple[FlugwetterSensorDescription, ...] = (
         options=STATUS_OPTIONS,
         value_fn=lambda c, d: d.today.get("status"),
         attr_fn=_day_attrs("today"),
-        unrecorded=frozenset({"stunden", "grenzwerte"}),
     ),
     FlugwetterSensorDescription(
         key="flugtag_morgen",
@@ -145,28 +197,24 @@ SENSORS: tuple[FlugwetterSensorDescription, ...] = (
         options=STATUS_OPTIONS,
         value_fn=lambda c, d: d.tomorrow.get("status"),
         attr_fn=_day_attrs("tomorrow"),
-        unrecorded=frozenset({"stunden"}),
     ),
     FlugwetterSensorDescription(
         key="metar",
         translation_key="metar",
         value_fn=lambda c, d: ((d.metar or {}).get("rawOb") or "")[:255] or None,
         attr_fn=_metar_attrs,
-        unrecorded=frozenset({"wolken"}),
     ),
     FlugwetterSensorDescription(
         key="taf",
         translation_key="taf",
         value_fn=lambda c, d: (d.taf or {}).get("icaoId"),
         attr_fn=lambda c, d: {"text": (d.taf or {}).get("rawTAF"), "ausgegeben": (d.taf or {}).get("issueTime")},
-        unrecorded=frozenset({"text"}),
     ),
     FlugwetterSensorDescription(
         key="gafor",
         translation_key="gafor",
         value_fn=_gafor_value,
         attr_fn=_gafor_attrs,
-        unrecorded=frozenset({"fenster"}),
     ),
     FlugwetterSensorDescription(
         key="seitenwind",
@@ -194,7 +242,7 @@ class FlugwetterSensor(CoordinatorEntity[FlugwetterCoordinator], SensorEntity):
     """Ein Flugwetter-Sensor."""
 
     _attr_has_entity_name = True
-    _unrecorded_attributes = frozenset({"stunden", "grenzwerte", "wolken", "text", "fenster"})
+    _unrecorded_attributes = frozenset({"stunden", "grenzwerte", "wolken", "text", "fenster", "uebersicht", "tage"})
     entity_description: FlugwetterSensorDescription
 
     def __init__(self, coordinator: FlugwetterCoordinator, description: FlugwetterSensorDescription) -> None:
