@@ -6,6 +6,8 @@
 > **For information only. This integration does not replace your pre-flight preparation.**
 > It is a quick overview, not a weather briefing. Before every flight, prepare yourself as required by SERA and your national rules, using official sources (aviation weather services, NOTAMs, AIP). Forecast models and automated evaluations can be wrong. The pilot in command remains solely responsible for the decision to fly.
 
+[![Open your Home Assistant instance and open this repository in the Marketplace.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=chrisribal&repository=ha-vfr-flight-weather&category=integration)
+
 A flying-weather traffic light for VFR pilots. For every airfield you add, the integration rates each hour for wind, gusts, crosswind, cloud ceiling, visibility, precipitation, thunderstorms and the German GAFOR. It tells you whether it is flyable **now** and when the **next flight window** starts, and shows a 24-hour timeline with wind and cloud layers, METAR, TAF and the DWD aviation weather overview.
 
 ![Dashboard: flying weather now and the next 24 hours](https://raw.githubusercontent.com/chrisribal/ha-vfr-flight-weather/main/docs/dashboard.png)
@@ -59,8 +61,12 @@ actions:
 
 ## Installation
 
-1. **Settings → Marketplace → Custom repositories**: add `https://github.com/chrisribal/ha-vfr-flight-weather` as an integration and install “VFR Flight Weather”. Restart Home Assistant.
-2. **Settings → Devices & services → Add integration → VFR Flight Weather**.
+**One click:** [![Open your Home Assistant instance and open this repository in the Marketplace.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=chrisribal&repository=ha-vfr-flight-weather&category=integration)
+
+1. The button opens the repository in your Home Assistant Marketplace (Home Assistant 2026.11 or newer). Click **Install** and restart Home Assistant if asked.
+   Manually: **Settings → Marketplace → Add from link** with `https://github.com/chrisribal/ha-vfr-flight-weather`.
+2. Add your airfield: [![Open your Home Assistant instance and start setting up VFR Flight Weather.](https://my.home-assistant.io/badges/config_flow_start.svg)](https://my.home-assistant.io/redirect/config_flow_start/?domain=vfr_flight_weather)
+   Or **Settings → Devices & services → Add integration → VFR Flight Weather**.
 3. Create the dashboard: **Settings → Dashboards → Add dashboard → VFR-Flugwetter**.
 
 ## How it rates
