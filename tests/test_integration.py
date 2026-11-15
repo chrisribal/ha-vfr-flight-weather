@@ -135,3 +135,32 @@ async def test_invalid_icao(hass: HomeAssistant) -> None:
     result = await hass.config_entries.flow.async_init(DOMAIN, context={"source": config_entries.SOURCE_USER})
     result = await hass.config_entries.flow.async_configure(result["flow_id"], {"icao": "ab!"})
     assert result["errors"] == {"icao": "invalid_icao"}
+
+
+async def test_setup_without_forecast(hass: HomeAssistant) -> None:
+    """Fällt die Vorhersage aus, startet die Integration trotzdem mit METAR und TAF."""
+    from pytest_homeassistant_custom_component.common import MockConfigEntry
+
+    from custom_components.vfr_flight_weather.api import FlugwetterApiError
+
+    await hass.config.async_set_time_zone("Europe/Berlin")
+    hass.config.language = "de"
+    entry = MockConfigEntry(
+        domain=DOMAIN,
+        title="EDAH Heringsdorf",
+        unique_id="EDAH",
+        data={"icao": "EDAH", "name": "EDAH Heringsdorf", "latitude": 53.879, "longitude": 14.152, "runway": 102,
+              "metar_station": "EDAH", "taf_station": "EDAH", "gafor_region": "none"},
+    )
+    entry.add_to_hass(hass)
+    with (
+        patch(f"{P}.coordinator.async_fetch_forecast", side_effect=FlugwetterApiError("Dienst überlastet (429)")),
+        patch(f"{P}.coordinator.async_fetch_metar", return_value=METAR),
+        patch(f"{P}.coordinator.async_fetch_taf", return_value=TAF),
+        patch(f"{P}.async_setup", return_value=True),
+    ):
+        assert await hass.config_entries.async_setup(entry.entry_id)
+        await hass.async_block_till_done()
+        assert entry.state is config_entries.ConfigEntryState.LOADED
+        assert hass.states.get("sensor.edah_heringsdorf_flugwetter_jetzt").state == "keine_daten"
+        assert hass.states.get("sensor.edah_heringsdorf_metar").state.startswith("METAR EDAH")

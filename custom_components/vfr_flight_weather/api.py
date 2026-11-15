@@ -26,24 +26,48 @@ class FlugwetterApiError(Exception):
     """Fehler beim Abruf einer Datenquelle."""
 
 
+RETRY_STATUS = {429, 502, 503, 504}
+
+
+def _describe(url: str, err: Exception) -> str:
+    """Verständliche Fehlermeldung (Zeitüberschreitungen haben sonst keinen Text)."""
+    if isinstance(err, asyncio.TimeoutError):
+        return f"{url}: Zeitüberschreitung nach {int(TIMEOUT.total or 0)} s"
+    if isinstance(err, aiohttp.ClientResponseError) and err.status == 429:
+        return f"{url}: Dienst überlastet (429), neuer Versuch später"
+    return f"{url}: {err}"
+
+
+async def _request(session: aiohttp.ClientSession, url: str, params: dict[str, Any] | None, as_json: bool) -> Any:
+    """GET mit einem zweiten Versuch bei Überlastung oder Zeitüberschreitung."""
+    last: Exception | None = None
+    for attempt in range(2):
+        try:
+            async with session.get(url, params=params, timeout=TIMEOUT, headers=HEADERS) as resp:
+                if as_json and resp.status == 204:
+                    return None
+                resp.raise_for_status()
+                return await (resp.json(content_type=None) if as_json else resp.text())
+        except aiohttp.ClientResponseError as err:
+            last = err
+            if err.status not in RETRY_STATUS:
+                break
+        except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
+            last = err
+            if not isinstance(err, asyncio.TimeoutError):
+                break
+        if attempt == 0:
+            await asyncio.sleep(3)
+    assert last is not None
+    raise FlugwetterApiError(_describe(url, last)) from last
+
+
 async def _get_json(session: aiohttp.ClientSession, url: str, params: dict[str, Any] | None = None) -> Any:
-    try:
-        async with session.get(url, params=params, timeout=TIMEOUT, headers=HEADERS) as resp:
-            if resp.status == 204:
-                return None
-            resp.raise_for_status()
-            return await resp.json(content_type=None)
-    except (aiohttp.ClientError, asyncio.TimeoutError, ValueError) as err:
-        raise FlugwetterApiError(f"{url}: {err}") from err
+    return await _request(session, url, params, True)
 
 
 async def _get_text(session: aiohttp.ClientSession, url: str) -> str:
-    try:
-        async with session.get(url, timeout=TIMEOUT, headers=HEADERS) as resp:
-            resp.raise_for_status()
-            return await resp.text()
-    except (aiohttp.ClientError, asyncio.TimeoutError) as err:
-        raise FlugwetterApiError(f"{url}: {err}") from err
+    return await _request(session, url, None, False)
 
 
 # ---------------------------------------------------------------- Flugplatz

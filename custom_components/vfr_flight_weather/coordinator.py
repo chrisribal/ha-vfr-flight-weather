@@ -11,7 +11,7 @@ from zoneinfo import ZoneInfo
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
-from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
+from homeassistant.helpers.update_coordinator import DataUpdateCoordinator
 from homeassistant.util import dt as dt_util
 
 from .api import (
@@ -119,9 +119,12 @@ class FlugwetterCoordinator(DataUpdateCoordinator[FlugwetterData]):
                 )
                 self._forecast_at = now
             except FlugwetterApiError as err:
+                # Ohne Vorhersage trotzdem weiterlaufen: METAR und TAF bleiben nutzbar,
+                # beim nächsten Abruf (alle 10 Minuten) wird es erneut versucht.
                 if self._forecast is None:
-                    raise UpdateFailed(f"Vorhersage nicht abrufbar: {err}") from err
-                _LOGGER.warning("Vorhersage nicht abrufbar, nutze letzten Stand: %s", err)
+                    _LOGGER.warning("Vorhersage noch nicht abrufbar, neuer Versuch beim nächsten Abruf: %s", err)
+                else:
+                    _LOGGER.warning("Vorhersage nicht abrufbar, nutze letzten Stand: %s", err)
 
         # METAR / TAF: bei Fehlern leer lassen
         if s.get(CONF_METAR_STATION):

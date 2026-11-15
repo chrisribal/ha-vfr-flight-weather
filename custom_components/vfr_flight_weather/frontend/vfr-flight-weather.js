@@ -2,7 +2,7 @@
  * Wird von der Integration automatisch geladen. Farben, Schriften und Abstände
  * kommen aus dem aktiven Home-Assistant-Theme.
  */
-const FW_VERSION = "0.2.0";
+const FW_VERSION = "0.2.1";
 const FW_DOMAIN = "vfr_flight_weather";
 const FW_KEYS = ["jetzt", "naechstes_flugfenster", "wolkenuntergrenze", "flugtag_heute", "flugtag_morgen", "metar", "taf", "gafor", "seitenwind"];
 
