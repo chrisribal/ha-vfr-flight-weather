@@ -54,7 +54,11 @@
           "vis_warn": "Sicht gelb unter",
           "vis_limit": "Sicht rot unter",
           "precip_warn": "Niederschlag gelb ab",
-          "precip_limit": "Niederschlag rot ab"
+          "precip_limit": "Niederschlag rot ab",
+          "gafor_m": "GAFOR M (marginal) bewerten als"
+        },
+        "data_description": {
+          "gafor_m": "M ist an den Bezugshöhen des GAFOR-Gebiets gemessen. Für Plätze am Rand eines Berggebiets kann gelb passender sein. X zählt immer als rot, D als gelb."
         }
       },
       "airfield": {
@@ -119,6 +123,14 @@
       },
       "seitenwind": {
         "name": "Seitenwind aktuell"
+      }
+    }
+  },
+  "selector": {
+    "gafor_m": {
+      "options": {
+        "rot": "Rot (kein Flugwetter)",
+        "gelb": "Gelb (eingeschränkt)"
       }
     }
   }

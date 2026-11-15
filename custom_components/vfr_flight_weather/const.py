@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from datetime import timedelta
 
 DOMAIN = "vfr_flight_weather"
-VERSION = "0.2.3"
+VERSION = "0.2.4"
 
 # Konfiguration (config entry data)
 CONF_ICAO = "icao"
@@ -31,8 +33,11 @@ CONF_VIS_WARN = "vis_warn"
 CONF_VIS_LIMIT = "vis_limit"
 CONF_PRECIP_WARN = "precip_warn"
 CONF_PRECIP_LIMIT = "precip_limit"
+CONF_GAFOR_M = "gafor_m"
+GAFOR_M_RED = "rot"
+GAFOR_M_AMBER = "gelb"
 
-DEFAULT_LIMITS: dict[str, float] = {
+DEFAULT_LIMITS: dict[str, Any] = {
     CONF_XW_WARN: 8,
     CONF_XW_LIMIT: 15,
     CONF_WIND_WARN: 15,
@@ -46,6 +51,7 @@ DEFAULT_LIMITS: dict[str, float] = {
     CONF_VIS_LIMIT: 5000,
     CONF_PRECIP_WARN: 0.2,
     CONF_PRECIP_LIMIT: 1.0,
+    CONF_GAFOR_M: GAFOR_M_RED,
 }
 
 GAFOR_NONE = "none"

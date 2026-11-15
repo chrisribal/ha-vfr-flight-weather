@@ -98,9 +98,12 @@ class FlugwetterCoordinator(DataUpdateCoordinator[FlugwetterData]):
         return {**self.config_entry.data, **self.config_entry.options}
 
     @property
-    def limits(self) -> dict[str, float]:
+    def limits(self) -> dict[str, Any]:
         s = self.settings
-        return {k: float(s.get(k, v)) for k, v in DEFAULT_LIMITS.items()}
+        return {
+            k: (s.get(k, v) if isinstance(v, str) else float(s.get(k, v)))
+            for k, v in DEFAULT_LIMITS.items()
+        }
 
     @property
     def runway(self) -> int:
@@ -165,9 +168,10 @@ class FlugwetterCoordinator(DataUpdateCoordinator[FlugwetterData]):
         gafor_valid = data.gafor_region is not None and data.gafor_date == local_now.date()
         gafor_windows = data.gafor_region.windows if gafor_valid and data.gafor_region else []
         gafor_date = data.gafor_date if gafor_valid else None
+        gafor_name = data.gafor_region.name if gafor_valid and data.gafor_region else ""
         lat, lon = float(s[CONF_LATITUDE]), float(s[CONF_LONGITUDE])
         data.rows = evaluate_hours(
-            self._forecast or {}, self.limits, self.runway, gafor_windows, gafor_date, tz, lat, lon
+            self._forecast or {}, self.limits, self.runway, gafor_windows, gafor_date, tz, lat, lon, gafor_name
         )
 
         # Laufende Stunde: frische METAR-Beobachtung statt Modell
@@ -175,7 +179,7 @@ class FlugwetterCoordinator(DataUpdateCoordinator[FlugwetterData]):
         if metar and isinstance(metar.get("obsTime"), (int, float)) and ts - metar["obsTime"] <= METAR_FOR_NOW_MAX_AGE:
             for i, row in enumerate(data.rows):
                 if row.t <= local_now < row.end:
-                    data.rows[i] = apply_metar(row, metar, self.limits, self.runway, gafor_windows, gafor_date)
+                    data.rows[i] = apply_metar(row, metar, self.limits, self.runway, gafor_windows, gafor_date, gafor_name)
                     break
 
         data.upcoming = [r for r in data.rows if r.end > local_now][:HOURS_AHEAD]

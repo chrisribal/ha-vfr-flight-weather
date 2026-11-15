@@ -15,6 +15,7 @@ from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .api import FlugwetterApiError, async_fetch_gafor, async_lookup_airport, async_nearest_stations
 from .const import (
+    CONF_GAFOR_M,
     CONF_GAFOR_REGION,
     CONF_ICAO,
     CONF_LATITUDE,
@@ -25,6 +26,8 @@ from .const import (
     CONF_TAF_STATION,
     DEFAULT_LIMITS,
     DOMAIN,
+    GAFOR_M_AMBER,
+    GAFOR_M_RED,
     GAFOR_NONE,
 )
 
@@ -198,15 +201,20 @@ class FlugwetterOptionsFlow(OptionsFlow):
         current = {**DEFAULT_LIMITS, **self.config_entry.options}
         if user_input is not None:
             return self.async_create_entry(data={**self.config_entry.options, **user_input})
-        schema = vol.Schema(
-            {
-                vol.Required(key, default=current.get(key)): selector.NumberSelector(
-                    selector.NumberSelectorConfig(min=lo, max=hi, step=step, unit_of_measurement=unit, mode=selector.NumberSelectorMode.BOX)
-                )
-                for key, lo, hi, step, unit in LIMIT_FIELDS
-            }
+        fields: dict[Any, Any] = {
+            vol.Required(key, default=current.get(key)): selector.NumberSelector(
+                selector.NumberSelectorConfig(min=lo, max=hi, step=step, unit_of_measurement=unit, mode=selector.NumberSelectorMode.BOX)
+            )
+            for key, lo, hi, step, unit in LIMIT_FIELDS
+        }
+        fields[vol.Required(CONF_GAFOR_M, default=current.get(CONF_GAFOR_M, GAFOR_M_RED))] = selector.SelectSelector(
+            selector.SelectSelectorConfig(
+                options=[GAFOR_M_RED, GAFOR_M_AMBER],
+                translation_key="gafor_m",
+                mode=selector.SelectSelectorMode.LIST,
+            )
         )
-        return self.async_show_form(step_id="limits", data_schema=schema)
+        return self.async_show_form(step_id="limits", data_schema=vol.Schema(fields))
 
     async def async_step_airfield(self, user_input: dict[str, Any] | None = None) -> ConfigFlowResult:
         current = {**self.config_entry.data, **self.config_entry.options}

@@ -16,6 +16,7 @@ from zoneinfo import ZoneInfo
 from .const import (
     CONF_CEIL_LIMIT,
     CONF_CEIL_WARN,
+    CONF_GAFOR_M,
     CONF_GUST_LIMIT,
     CONF_GUST_SPREAD_WARN,
     CONF_GUST_WARN,
@@ -27,6 +28,7 @@ from .const import (
     CONF_WIND_WARN,
     CONF_XW_LIMIT,
     CONF_XW_WARN,
+    GAFOR_M_AMBER,
 )
 
 # Tagesbewertung
@@ -49,6 +51,50 @@ WC_FREEZING = {56, 57, 66, 67}
 WC_FOG = {45, 48}
 WC_SNOW_HEAVY = {73, 75, 86}
 WC_SNOW_LIGHT = {71, 77, 85}
+
+# Zusätze im GAFOR-Code (z. B. "M2 ISOL FG"), in Klartext
+GAFOR_TERMS = {
+    "ISOL": "vereinzelt",
+    "OCNL": "gelegentlich",
+    "FRQ": "häufig",
+    "LOC": "örtlich",
+    "FG": "Nebel",
+    "BCFG": "Nebelschwaden",
+    "MIFG": "flacher Nebel",
+    "BR": "Dunst",
+    "HZ": "Dunst",
+    "DZ": "Sprühregen",
+    "RA": "Regen",
+    "SHRA": "Regenschauer",
+    "RASN": "Schneeregen",
+    "SN": "Schnee",
+    "SHSN": "Schneeschauer",
+    "GS": "Graupel",
+    "SHGS": "Graupelschauer",
+    "TS": "Gewitter",
+    "TSRA": "Gewitter mit Regen",
+    "FZRA": "gefrierender Regen",
+    "FZDZ": "gefrierender Sprühregen",
+}
+
+
+def describe_gafor(code: str, region_name: str = "") -> str:
+    """Lesbarer Grund, z. B. 'GAFOR M2 Harz (vereinzelt Nebel)'."""
+    parts = code.split()
+    if not parts:
+        return ""
+    words = []
+    for token in parts[1:]:
+        prefix = {"+": "starker ", "-": "leichter "}.get(token[:1], "")
+        base = token.lstrip("+-")
+        words.append(prefix + GAFOR_TERMS.get(base, base))
+    text = f"GAFOR {parts[0]}"
+    if region_name:
+        text += f" {region_name}"
+    if words:
+        text += f" ({' '.join(words)})"
+    return text
+
 
 # Druckflächen für die Wolkenschichten (Open-Meteo, DWD ICON)
 PRESSURE_LEVELS = (1000, 975, 950, 925, 900, 850, 800, 700, 600)
@@ -218,7 +264,13 @@ def _parse_local(value: str, tz: ZoneInfo) -> datetime:
 # ---------------------------------------------------------------- Bewertung
 
 
-def rate_row(row: HourRow, limits: dict[str, float], gafor: list[GaforWindow], gafor_date: date | None) -> HourRow:
+def rate_row(
+    row: HourRow,
+    limits: dict[str, Any],
+    gafor: list[GaforWindow],
+    gafor_date: date | None,
+    gafor_name: str = "",
+) -> HourRow:
     """Ampelstufe und Gründe einer Stunde aus ihren Werten."""
     row.lvl, row.why = 0, []
 
@@ -279,10 +331,13 @@ def rate_row(row: HourRow, limits: dict[str, float], gafor: list[GaforWindow], g
             if w.start_utc <= u < w.end_utc and w.code:
                 row.gafor = w.code
                 first = w.code[:1]
-                if first in ("X", "M"):
-                    flag(2, f"GAFOR {w.code}")
+                reason = describe_gafor(w.code, gafor_name)
+                if first == "X":
+                    flag(2, reason)
+                elif first == "M":
+                    flag(1 if limits.get(CONF_GAFOR_M) == GAFOR_M_AMBER else 2, reason)
                 elif first == "D":
-                    flag(1, f"GAFOR {w.code}")
+                    flag(1, reason)
                 break
     return row
 
@@ -296,6 +351,7 @@ def evaluate_hours(
     tz: ZoneInfo,
     lat: float | None = None,
     lon: float | None = None,
+    gafor_name: str = "",
 ) -> list[HourRow]:
     """Bewertet alle Stunden der Open-Meteo-Vorhersage."""
     hourly = forecast.get("hourly") or {}
@@ -358,7 +414,7 @@ def evaluate_hours(
             wc=int(val("weather_code", i) or 0),
             wolken=layers,
         )
-        rows.append(rate_row(row, limits, gafor, gafor_date))
+        rows.append(rate_row(row, limits, gafor, gafor_date, gafor_name))
     return rows
 
 
@@ -396,6 +452,7 @@ def apply_metar(
     runway: float,
     gafor: list[GaforWindow],
     gafor_date: date | None,
+    gafor_name: str = "",
 ) -> HourRow:
     """Ersetzt die Modellwerte der laufenden Stunde durch die Beobachtung."""
     obs = replace(row, why=[], wolken=list(row.wolken), quelle="metar")
@@ -417,7 +474,7 @@ def apply_metar(
     if vis is not None:
         obs.vis = vis
     obs.wx = str(metar.get("wxString") or "")
-    return rate_row(obs, limits, gafor, gafor_date)
+    return rate_row(obs, limits, gafor, gafor_date, gafor_name)
 
 
 # ---------------------------------------------------------------- Zusammenfassungen

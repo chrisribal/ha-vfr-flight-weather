@@ -19,6 +19,7 @@ from custom_components.vfr_flight_weather.evaluation import (
     apply_metar,
     cover_code,
     crosswind,
+    describe_gafor,
     describe_layers,
     estimate_ceiling,
     metar_ceiling,
@@ -233,3 +234,17 @@ def test_parse_overview():
     assert ov["abschnitte"][1]["text"] == "Erster Absatz.\n\nZweiter Absatz & mehr."
     assert "180/10KT" in ov["abschnitte"][3]["text"] and "190/20KT" not in ov["abschnitte"][3]["text"]
     assert ov["naechste"].endswith("05.00 UTC")
+
+
+def test_gafor_reason_and_m_as_amber():
+    assert describe_gafor("M2 ISOL FG", "Harz") == "GAFOR M2 Harz (vereinzelt Nebel)"
+    assert describe_gafor("D1 OCNL -SHRA") == "GAFOR D1 (gelegentlich leichter Regenschauer)"
+    assert describe_gafor("C") == "GAFOR C"
+    fc = _forecast("2026-11-13", range(12, 15))
+    gafor = [GaforWindow(11, 13, "M2 ISOL FG"), GaforWindow(13, 15, "X")]
+    rows = evaluate_hours(fc, DEFAULT_LIMITS, 90, gafor, date(2026, 11, 13), TZ, gafor_name="Harz")
+    assert rows[0].lvl == 2 and rows[0].why == ["GAFOR M2 Harz (vereinzelt Nebel)"]
+    amber = {**DEFAULT_LIMITS, "gafor_m": "gelb"}
+    rows = evaluate_hours(fc, amber, 90, gafor, date(2026, 11, 13), TZ, gafor_name="Harz")
+    assert rows[0].lvl == 1  # M nur gelb
+    assert rows[2].lvl == 2  # X bleibt rot

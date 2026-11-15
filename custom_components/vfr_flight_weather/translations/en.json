@@ -54,7 +54,11 @@
           "vis_warn": "Visibility amber below",
           "vis_limit": "Visibility red below",
           "precip_warn": "Precipitation amber from",
-          "precip_limit": "Precipitation red from"
+          "precip_limit": "Precipitation red from",
+          "gafor_m": "Rate GAFOR M (marginal) as"
+        },
+        "data_description": {
+          "gafor_m": "M refers to the reference heights of the GAFOR region. For airfields at the edge of a mountain region, amber may fit better. X is always red, D amber."
         }
       },
       "airfield": {
@@ -119,6 +123,14 @@
       },
       "seitenwind": {
         "name": "Current crosswind"
+      }
+    }
+  },
+  "selector": {
+    "gafor_m": {
+      "options": {
+        "rot": "Red (no flying weather)",
+        "gelb": "Amber (limited)"
       }
     }
   }

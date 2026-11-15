@@ -2,7 +2,7 @@
  * Wird von der Integration automatisch geladen. Farben, Schriften und Abstände
  * kommen aus dem aktiven Home-Assistant-Theme.
  */
-const FW_VERSION = "0.2.3";
+const FW_VERSION = "0.2.4";
 const FW_DOMAIN = "vfr_flight_weather";
 const FW_KEYS = ["jetzt", "naechstes_flugfenster", "wolkenuntergrenze", "flugtag_heute", "flugtag_morgen", "metar", "taf", "gafor", "seitenwind"];
 
@@ -555,7 +555,8 @@ class FlugwetterCard extends HTMLElement {
       chips = (ga.fenster || [])
         .map((w) => {
           const c = String(w.code || "");
-          const lv = /^[XM]/.test(c) ? 2 : /^D/.test(c) ? 1 : 0;
+          const mAmber = (this._st("jetzt")?.attributes?.grenzwerte || {}).gafor_m === "gelb";
+          const lv = /^X/.test(c) ? 2 : /^M/.test(c) ? (mAmber ? 1 : 2) : /^D/.test(c) ? 1 : 0;
           return `<span class="gchip"><span class="dot" style="background:${LVL_COLOR[lv]}"></span>${pad(w.von_utc)}–${pad(w.bis_utc % 24)} UTC <b>${esc(c)}</b></span>`;
         })
         .join("");
