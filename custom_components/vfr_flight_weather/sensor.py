@@ -1,4 +1,4 @@
-"""Sensoren der Flugwetter-Integration."""
+"""Sensoren der Integration VFR Flight Weather."""
 
 from __future__ import annotations
 
@@ -253,7 +253,7 @@ class FlugwetterSensor(CoordinatorEntity[FlugwetterCoordinator], SensorEntity):
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, entry.entry_id)},
             name=entry.title,
-            manufacturer="Flugwetter",
+            manufacturer="VFR Flight Weather",
             model="Flugplatz",
             sw_version=VERSION,
             entry_type=DeviceEntryType.SERVICE,

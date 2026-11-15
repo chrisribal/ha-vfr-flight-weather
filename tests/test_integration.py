@@ -8,11 +8,11 @@ from homeassistant.core import HomeAssistant
 from homeassistant.data_entry_flow import FlowResultType
 from homeassistant.util import dt as dt_util
 
-from custom_components.flugwetter.api import AirportInfo, GaforRegion
-from custom_components.flugwetter.const import DOMAIN
-from custom_components.flugwetter.evaluation import GaforWindow
+from custom_components.vfr_flight_weather.api import AirportInfo, GaforRegion
+from custom_components.vfr_flight_weather.const import DOMAIN
+from custom_components.vfr_flight_weather.evaluation import GaforWindow
 
-P = "custom_components.flugwetter"
+P = "custom_components.vfr_flight_weather"
 
 
 def _forecast(today: str, tomorrow: str):

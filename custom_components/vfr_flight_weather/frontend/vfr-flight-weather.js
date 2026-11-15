@@ -1,9 +1,9 @@
-/* Flugwetter – Karten und Dashboard-Strategie für die Flugwetter-Integration.
+/* VFR Flight Weather – Karten und Dashboard-Strategie der Integration.
  * Wird von der Integration automatisch geladen. Farben, Schriften und Abstände
  * kommen aus dem aktiven Home-Assistant-Theme.
  */
 const FW_VERSION = "0.2.0";
-const FW_DOMAIN = "flugwetter";
+const FW_DOMAIN = "vfr_flight_weather";
 const FW_KEYS = ["jetzt", "naechstes_flugfenster", "wolkenuntergrenze", "flugtag_heute", "flugtag_morgen", "metar", "taf", "gafor", "seitenwind"];
 
 const FW_VIEWS = {
@@ -151,7 +151,7 @@ class FlugwetterCard extends HTMLElement {
   }
 
   static getConfigElement() {
-    return document.createElement("flugwetter-card-editor");
+    return document.createElement("vfr-flight-weather-card-editor");
   }
 
   _st(key) {
@@ -176,7 +176,7 @@ class FlugwetterCard extends HTMLElement {
     const jetzt = this._st("jetzt");
     let body;
     if (!this._dev || !jetzt) {
-      body = `<div class="empty">Kein Flugplatz gefunden. Richte die Integration „Flugwetter“ ein und wähle den Flugplatz in den Karteneinstellungen.</div>`;
+      body = `<div class="empty">Kein Flugplatz gefunden. Richte die Integration „VFR Flight Weather“ ein und wähle den Flugplatz in den Karteneinstellungen.</div>`;
     } else {
       this._clock = new FwClock(this._hass);
       const parts = {
@@ -645,7 +645,7 @@ const FW_CSS = `
   details[open] summary { margin-bottom: 4px; }
 `;
 
-if (!customElements.get("flugwetter-card")) customElements.define("flugwetter-card", FlugwetterCard);
+if (!customElements.get("vfr-flight-weather-card")) customElements.define("vfr-flight-weather-card", FlugwetterCard);
 
 // ---------------------------------------------------------------- Editoren
 
@@ -695,7 +695,7 @@ class FlugwetterFormEditor extends HTMLElement {
       });
       const hint = document.createElement("div");
       hint.style.cssText = "margin-top:12px;color:var(--secondary-text-color);font-size:13px";
-      hint.textContent = "Grenzwerte, Bahnrichtung und Stationen änderst du in den Einstellungen der Integration „Flugwetter“.";
+      hint.textContent = "Grenzwerte, Bahnrichtung und Stationen änderst du in den Einstellungen der Integration „VFR Flight Weather“.";
       this.append(this._form, hint);
     }
     this._form.hass = this._hass;
@@ -721,14 +721,14 @@ class FlugwetterCardEditor extends FlugwetterFormEditor {
     return schema;
   }
 }
-if (!customElements.get("flugwetter-card-editor")) customElements.define("flugwetter-card-editor", FlugwetterCardEditor);
+if (!customElements.get("vfr-flight-weather-card-editor")) customElements.define("vfr-flight-weather-card-editor", FlugwetterCardEditor);
 
 class FlugwetterStrategyEditor extends FlugwetterFormEditor {
   get _schema() {
     return [{ name: "device_ids", required: true, selector: { device: { multiple: true, filter: { integration: FW_DOMAIN } } } }];
   }
 }
-if (!customElements.get("flugwetter-strategy-editor")) customElements.define("flugwetter-strategy-editor", FlugwetterStrategyEditor);
+if (!customElements.get("vfr-flight-weather-strategy-editor")) customElements.define("vfr-flight-weather-strategy-editor", FlugwetterStrategyEditor);
 
 // ---------------------------------------------------------------- Dashboard-Strategie
 
@@ -737,11 +737,11 @@ class FlugwetterDashboardStrategy extends HTMLElement {
   static registryDependencies = ["entities", "devices"];
 
   static getConfigElement() {
-    return document.createElement("flugwetter-strategy-editor");
+    return document.createElement("vfr-flight-weather-strategy-editor");
   }
 
   static getCreateSuggestions() {
-    return { title: "Flugwetter", icon: "mdi:airplane" };
+    return { title: "VFR-Flugwetter", icon: "mdi:airplane" };
   }
 
   static async generate(config, hass) {
@@ -750,8 +750,8 @@ class FlugwetterDashboardStrategy extends HTMLElement {
     if (!ids.length) {
       return {
         views: [{
-          title: "Flugwetter",
-          cards: [{ type: "markdown", content: "## Noch kein Flugplatz\nRichte unter **Einstellungen → Geräte & Dienste** die Integration **Flugwetter** ein und öffne dann die Einstellungen dieses Dashboards (Zahnrad)." }],
+          title: "VFR-Flugwetter",
+          cards: [{ type: "markdown", content: "## Noch kein Flugplatz\nRichte unter **Einstellungen → Geräte & Dienste** die Integration **VFR Flight Weather** ein und öffne dann die Einstellungen dieses Dashboards (Zahnrad)." }],
         }],
       };
     }
@@ -761,12 +761,12 @@ class FlugwetterDashboardStrategy extends HTMLElement {
         const name = dev?.name_by_user || dev?.name || "Flugwetter";
         const icao = name.split(" ")[0];
         const ent = fwEntities(hass, id);
-        const card = (ansicht, extra = {}) => ({ type: "custom:flugwetter-card", device_id: id, ansicht, ...extra });
+        const card = (ansicht, extra = {}) => ({ type: "custom:vfr-flight-weather-card", device_id: id, ansicht, ...extra });
         const tile = (key) =>
           ent[key] ? { type: "tile", entity: ent[key], state_content: ["state", "fenster"], grid_options: { columns: 6 } } : null;
         const heading = (h, icon) => ({ type: "heading", heading: h, icon, heading_style: "title" });
         return {
-          title: ids.length > 1 ? icao : "Flugwetter",
+          title: ids.length > 1 ? icao : "VFR-Flugwetter",
           path: icao.toLowerCase().replace(/[^a-z0-9]/g, "") || undefined,
           icon: "mdi:airplane",
           type: "sections",
@@ -783,25 +783,25 @@ class FlugwetterDashboardStrategy extends HTMLElement {
     };
   }
 }
-if (!customElements.get("ll-strategy-dashboard-flugwetter")) customElements.define("ll-strategy-dashboard-flugwetter", FlugwetterDashboardStrategy);
+if (!customElements.get("ll-strategy-dashboard-vfr-flight-weather")) customElements.define("ll-strategy-dashboard-vfr-flight-weather", FlugwetterDashboardStrategy);
 
 window.customCards = window.customCards || [];
-if (!window.customCards.some((c) => c.type === "flugwetter-card")) {
+if (!window.customCards.some((c) => c.type === "vfr-flight-weather-card")) {
   window.customCards.push({
-    type: "flugwetter-card",
-    name: "Flugwetter",
+    type: "vfr-flight-weather-card",
+    name: "VFR-Flugwetter",
     description: "Flugwetter jetzt, Zeitstrahl mit Wind und Wolkenschichten, Windrose, METAR/TAF/GAFOR und DWD-Übersicht",
     preview: false,
   });
 }
 window.customStrategies = window.customStrategies || [];
-if (!window.customStrategies.some((c) => c.type === "flugwetter")) {
+if (!window.customStrategies.some((c) => c.type === "vfr-flight-weather")) {
   window.customStrategies.push({
-    type: "flugwetter",
+    type: "vfr-flight-weather",
     strategyType: "dashboard",
-    name: "Flugwetter",
+    name: "VFR-Flugwetter",
     description: "Ist jetzt Flugwetter, und wann wird es fliegbar? Zeitstrahl, Wolken, Wind, METAR, TAF, GAFOR und DWD-Übersicht für deine Flugplätze.",
-    documentationURL: "https://github.com/",
+    documentationURL: "https://github.com/chrisribal/ha-vfr-flight-weather",
   });
 }
-console.info(`%c FLUGWETTER %c ${FW_VERSION} `, "background:var(--primary-color,#03a9f4);color:#fff;font-weight:700", "");
+console.info(`%c VFR FLIGHT WEATHER %c ${FW_VERSION} `, "background:var(--primary-color,#03a9f4);color:#fff;font-weight:700", "");

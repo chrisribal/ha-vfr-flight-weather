@@ -1,4 +1,4 @@
-"""Flugwetter: Flugtag-Ampel, METAR, TAF und GAFOR für einen Flugplatz."""
+"""VFR Flight Weather: Flugwetter-Ampel, METAR, TAF und GAFOR für Flugplätze."""
 
 from __future__ import annotations
 

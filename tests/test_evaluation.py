@@ -4,9 +4,9 @@ from datetime import date, datetime
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-from custom_components.flugwetter.api import _normalize_runway, overview_for_region, parse_gafor_page, parse_overview
-from custom_components.flugwetter.const import DEFAULT_LIMITS
-from custom_components.flugwetter.evaluation import (
+from custom_components.vfr_flight_weather.api import _normalize_runway, overview_for_region, parse_gafor_page, parse_overview
+from custom_components.vfr_flight_weather.const import DEFAULT_LIMITS
+from custom_components.vfr_flight_weather.evaluation import (
     NOW_BAD,
     NOW_GOOD,
     NOW_NIGHT,

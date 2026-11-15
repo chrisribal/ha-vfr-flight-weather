@@ -1,0 +1,18 @@
+{
+  "domain": "vfr_flight_weather",
+  "name": "VFR Flight Weather",
+  "codeowners": [
+    "@chrisribal"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "frontend",
+    "http"
+  ],
+  "documentation": "https://github.com/chrisribal/ha-vfr-flight-weather",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/chrisribal/ha-vfr-flight-weather/issues",
+  "requirements": [],
+  "version": "0.2.0"
+}

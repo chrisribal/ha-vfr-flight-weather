@@ -1,0 +1,8 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    { "label": "Tests", "type": "shell", "command": "pytest -q", "group": "test", "problemMatcher": [] },
+    { "label": "Deploy to Home Assistant", "type": "shell", "command": "./deploy.sh", "problemMatcher": [] },
+    { "label": "Deploy (ohne Neustart)", "type": "shell", "command": "./deploy.sh --no-restart", "problemMatcher": [] }
+  ]
+}

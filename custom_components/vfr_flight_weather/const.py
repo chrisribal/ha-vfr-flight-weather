@@ -1,10 +1,10 @@
-"""Konstanten der Flugwetter-Integration."""
+"""Konstanten der Integration VFR Flight Weather."""
 
 from __future__ import annotations
 
 from datetime import timedelta
 
-DOMAIN = "flugwetter"
+DOMAIN = "vfr_flight_weather"
 VERSION = "0.2.0"
 
 # Konfiguration (config entry data)
@@ -64,7 +64,7 @@ GAFOR_URLS: dict[str, str] = {
     "sued": "https://www.dwd.de/DE/fachnutzer/luftfahrt/teaser/luftsportberichte/fbeu40_edzm_node.html",
 }
 
-USER_AGENT = f"HomeAssistant-Flugwetter/{VERSION} (+https://github.com/)"
+USER_AGENT = f"HomeAssistant-VFRFlightWeather/{VERSION} (+https://github.com/chrisribal/ha-vfr-flight-weather)"
 
-FRONTEND_URL_BASE = "/flugwetter_static"
-FRONTEND_FILE = "flugwetter.js"
+FRONTEND_URL_BASE = "/vfr_flight_weather_static"
+FRONTEND_FILE = "vfr-flight-weather.js"

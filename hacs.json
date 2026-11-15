@@ -1,6 +1,8 @@
 {
-  "name": "Flugwetter",
+  "name": "VFR Flight Weather",
   "homeassistant": "2026.5.0",
-  "country": ["DE"],
+  "country": [
+    "DE"
+  ],
   "render_readme": true
 }
