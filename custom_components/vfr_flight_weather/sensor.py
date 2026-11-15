@@ -19,7 +19,7 @@ from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import CONF_GAFOR_REGION, CONF_ICAO, CONF_METAR_STATION, DOMAIN, VERSION
+from .const import CONF_GAFOR_REGION, CONF_ICAO, CONF_METAR_STATION, CONF_TAF_STATION, DOMAIN, VERSION
 from .coordinator import FlugwetterConfigEntry, FlugwetterCoordinator, FlugwetterData
 from .evaluation import (
     NOW_OPTIONS,
@@ -208,7 +208,11 @@ SENSORS: tuple[FlugwetterSensorDescription, ...] = (
         key="taf",
         translation_key="taf",
         value_fn=lambda c, d: (d.taf or {}).get("icaoId"),
-        attr_fn=lambda c, d: {"text": (d.taf or {}).get("rawTAF"), "ausgegeben": (d.taf or {}).get("issueTime")},
+        attr_fn=lambda c, d: {
+            "station": c.settings.get(CONF_TAF_STATION),
+            "text": (d.taf or {}).get("rawTAF"),
+            "ausgegeben": (d.taf or {}).get("issueTime"),
+        },
     ),
     FlugwetterSensorDescription(
         key="gafor",

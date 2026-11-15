@@ -2,7 +2,7 @@
  * Wird von der Integration automatisch geladen. Farben, Schriften und Abstände
  * kommen aus dem aktiven Home-Assistant-Theme.
  */
-const FW_VERSION = "0.2.1";
+const FW_VERSION = "0.2.2";
 const FW_DOMAIN = "vfr_flight_weather";
 const FW_KEYS = ["jetzt", "naechstes_flugfenster", "wolkenuntergrenze", "flugtag_heute", "flugtag_morgen", "metar", "taf", "gafor", "seitenwind"];
 
@@ -535,7 +535,7 @@ class FlugwetterCard extends HTMLElement {
     out += `<div class="block" data-more="metar"><div class="block-head">METAR ${esc(ma.station || "")}${age}</div>
       <pre>${metar && metar.state && metar.state !== "unknown" ? esc(metar.state) : "Keine aktuelle Meldung"}</pre></div>`;
     const ta = taf?.attributes || {};
-    out += `<div class="block" data-more="taf"><div class="block-head">TAF ${esc(taf?.state && taf.state !== "unknown" ? taf.state : "")}</div>
+    out += `<div class="block" data-more="taf"><div class="block-head">TAF ${esc(taf?.state && taf.state !== "unknown" ? taf.state : ta.station || "")}</div>
       <pre>${ta.text ? esc(ta.text) : "Keine gültige Vorhersage"}</pre></div>`;
     const ga = gafor?.attributes || {};
     const today = clock.dayKey(new Date());
@@ -790,8 +790,9 @@ class FlugwetterDashboardStrategy extends HTMLElement {
         const icao = name.split(" ")[0];
         const ent = fwEntities(hass, id);
         const card = (ansicht, extra = {}) => ({ type: "custom:vfr-flight-weather-card", device_id: id, ansicht, ...extra });
-        const tile = (key) =>
-          ent[key] ? { type: "tile", entity: ent[key], state_content: ["state", "fenster"], grid_options: { columns: 6 } } : null;
+        const de = String(hass.locale?.language || hass.language || "de").startsWith("de");
+        const tile = (key, label) =>
+          ent[key] ? { type: "tile", entity: ent[key], name: label, state_content: ["state", "fenster"], grid_options: { columns: 6 } } : null;
         const heading = (h, icon) => ({ type: "heading", heading: h, icon, heading_style: "title" });
         return {
           title: ids.length > 1 ? icao : "VFR-Flugwetter",
@@ -800,7 +801,7 @@ class FlugwetterDashboardStrategy extends HTMLElement {
           type: "sections",
           max_columns: 3,
           sections: [
-            { type: "grid", cards: [heading(name, "mdi:airport"), card("jetzt"), tile("flugtag_heute"), tile("flugtag_morgen")].filter(Boolean) },
+            { type: "grid", cards: [heading(name, "mdi:airport"), card("jetzt"), tile("flugtag_heute", de ? "Heute" : "Today"), tile("flugtag_morgen", de ? "Morgen" : "Tomorrow")].filter(Boolean) },
             { type: "grid", column_span: 2, cards: [heading("Nächste 24 Stunden", "mdi:chart-timeline-variant"), card("zeitstrahl")] },
             { type: "grid", cards: [heading("Wind", "mdi:windsock"), card("wind")] },
             { type: "grid", column_span: 2, cards: [heading("Meldungen", "mdi:text-box-outline"), card("meldungen")] },
