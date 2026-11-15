@@ -8,15 +8,11 @@
 
 A flying-weather traffic light for VFR pilots. For every airfield you add, the integration rates each hour for wind, gusts, crosswind, cloud ceiling, visibility, precipitation, thunderstorms and the German GAFOR. It tells you whether it is flyable **now** and when the **next flight window** starts, and shows a 24-hour timeline with wind and cloud layers, METAR, TAF and the DWD aviation weather overview.
 
-![Dashboard (light theme)](https://raw.githubusercontent.com/chrisribal/ha-vfr-flight-weather/main/docs/dashboard.png)
+![Dashboard: flying weather now and the next 24 hours](https://raw.githubusercontent.com/chrisribal/ha-vfr-flight-weather/main/docs/dashboard.png)
 
-<details><summary>Dark theme</summary>
+![Dashboard: wind, reports and DWD overview](https://raw.githubusercontent.com/chrisribal/ha-vfr-flight-weather/main/docs/dashboard-details.png)
 
-![Dashboard (dark theme)](https://raw.githubusercontent.com/chrisribal/ha-vfr-flight-weather/main/docs/dashboard-dark.png)
-
-</details>
-
-*Screenshots with sample data. The dashboard follows your Home Assistant language (German or English notice) and theme.*
+*Real dashboard at EDBM with a dark theme. The dashboard follows your Home Assistant theme and language (the notice is shown in German or English; the remaining card texts are German for now).*
 
 ## Features
 
