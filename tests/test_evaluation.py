@@ -9,6 +9,7 @@ from custom_components.vfr_flight_weather.const import DEFAULT_LIMITS
 from custom_components.vfr_flight_weather.evaluation import (
     NOW_BAD,
     NOW_GOOD,
+    NOW_LIMITED,
     NOW_NIGHT,
     STATUS_BAD,
     STATUS_GOOD,
@@ -148,8 +149,15 @@ def test_now_and_next_window():
     now = datetime(2026, 11, 13, 11, 30, tzinfo=TZ)
     n = summarize_now(rows, now)
     assert n["status"] == NOW_GOOD
-    assert n["fliegbar_bis"].startswith("2026-11-13T13:00")
+    assert n["stufe_bis"].startswith("2026-11-13T13:00")  # grün bis 13 Uhr
+    assert n["fliegbar_bis"].startswith("2026-11-13T16:00")  # danach gelb, dann wieder grün
     assert n["fenster_start"].startswith("2026-11-13T11:30")
+
+    # Gelb jetzt (Böen), grün ab der nächsten Stunde: "eingeschränkt bis 14:00, danach gut"
+    n = summarize_now(rows, datetime(2026, 11, 13, 13, 20, tzinfo=TZ))
+    assert n["status"] == NOW_LIMITED
+    assert n["stufe_bis"].startswith("2026-11-13T14:00")
+    assert n["fenster_start"].startswith("2026-11-13T14:00") and n["fenster_stufe"] == 0
 
     # Heute ab 11:30: nur Reststunden zählen
     s = summarize_day(rows, "2026-11-13", now)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from datetime import timedelta
 
 DOMAIN = "vfr_flight_weather"
-VERSION = "0.2.2"
+VERSION = "0.2.3"
 
 # Konfiguration (config entry data)
 CONF_ICAO = "icao"

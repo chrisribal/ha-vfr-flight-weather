@@ -2,7 +2,7 @@
  * Wird von der Integration automatisch geladen. Farben, Schriften und Abstände
  * kommen aus dem aktiven Home-Assistant-Theme.
  */
-const FW_VERSION = "0.2.2";
+const FW_VERSION = "0.2.3";
 const FW_DOMAIN = "vfr_flight_weather";
 const FW_KEYS = ["jetzt", "naechstes_flugfenster", "wolkenuntergrenze", "flugtag_heute", "flugtag_morgen", "metar", "taf", "gafor", "seitenwind"];
 
@@ -230,12 +230,21 @@ class FlugwetterCard extends HTMLElement {
 
     // Kernaussage: bis wann / ab wann
     let headline = "";
-    if (st.state === "fliegbar" && a.fliegbar_bis) {
-      headline = `Fliegbar bis ${clock.when(a.fliegbar_bis)} <span class="dim">(noch ${fmtDuration(new Date(a.fliegbar_bis) - now)})</span>`;
-    } else if (st.state === "eingeschraenkt" && a.fliegbar_bis) {
-      headline = `Eingeschränkt bis ${clock.when(a.fliegbar_bis)}`;
-      if (a.naechstes_fenster_stufe === 0 && new Date(a.naechstes_fenster_start) > now) {
-        headline += ` · gut ab ${clock.when(a.naechstes_fenster_start)}`;
+    const until = a.stufe_bis || a.fliegbar_bis;
+    if (st.state === "fliegbar" && until) {
+      headline = `Fliegbar bis ${clock.when(until)} <span class="dim">(noch ${fmtDuration(new Date(until) - now)})</span>`;
+      if (a.fliegbar_bis && new Date(a.fliegbar_bis) > new Date(until)) {
+        headline += ` · danach eingeschränkt bis ${clock.when(a.fliegbar_bis)}`;
+      }
+    } else if (st.state === "eingeschraenkt" && until) {
+      headline = `Eingeschränkt bis ${clock.when(until)}`;
+      if (a.naechstes_fenster_stufe === 0 && a.naechstes_fenster_start) {
+        const start = new Date(a.naechstes_fenster_start);
+        headline += start.getTime() === new Date(until).getTime()
+          ? ` · danach gut bis ${clock.when(a.naechstes_fenster_ende)}`
+          : ` · gut ab ${clock.when(a.naechstes_fenster_start)} bis ${clock.when(a.naechstes_fenster_ende)}`;
+      } else if (a.fliegbar_bis && new Date(a.fliegbar_bis) > new Date(until)) {
+        headline += ` · fliegbar bis ${clock.when(a.fliegbar_bis)}`;
       }
     } else if (a.naechstes_fenster_start) {
       const what = a.naechstes_fenster_stufe === 0 ? "Fliegbar" : "Eingeschränkt fliegbar";

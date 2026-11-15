@@ -455,20 +455,27 @@ def summarize_now(rows: list[HourRow], now: datetime) -> dict[str, Any]:
         "gruende": list(cur.why),
         "quelle": cur.quelle,
         "fliegbar_bis": None,
+        "stufe_bis": None,
         "fenster_start": None,
         "fenster_ende": None,
         "fenster_stufe": None,
     }
 
-    # Läuft gerade ein Flugfenster, bis wann?
-    if cur.tag and cur.lvl <= 1:
+    def run_end(pred) -> datetime:
         end = cur.end
         for r in future[1:]:
-            if r.tag and r.lvl <= cur.lvl:
+            if pred(r):
                 end = r.end
             else:
                 break
-        result["fliegbar_bis"] = end.isoformat()
+        return end
+
+    if cur.tag:
+        # Bis wann bleibt die aktuelle Stufe gleich?
+        result["stufe_bis"] = run_end(lambda r: r.tag and r.lvl == cur.lvl).isoformat()
+        # Bis wann ist es überhaupt fliegbar (grün oder gelb)?
+        if cur.lvl <= 1:
+            result["fliegbar_bis"] = run_end(lambda r: r.tag and r.lvl <= 1).isoformat()
 
     # Nächstes grünes Fenster (das laufende zählt mit), sonst nächstes gelbes
     for stufe in (0, 1):
