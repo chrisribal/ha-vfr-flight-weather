@@ -1,10 +1,22 @@
 # VFR Flight Weather for Home Assistant
 
+<img src="https://raw.githubusercontent.com/chrisribal/ha-vfr-flight-weather/main/custom_components/vfr_flight_weather/brand/icon@2x.png" alt="VFR Flight Weather icon" width="96" align="right">
+
 > [!CAUTION]
 > **For information only. This integration does not replace your pre-flight preparation.**
 > It is a quick overview, not a weather briefing. Before every flight, prepare yourself as required by SERA and your national rules, using official sources (aviation weather services, NOTAMs, AIP). Forecast models and automated evaluations can be wrong. The pilot in command remains solely responsible for the decision to fly.
 
 A flying-weather traffic light for VFR pilots. For every airfield you add, the integration rates each hour for wind, gusts, crosswind, cloud ceiling, visibility, precipitation, thunderstorms and the German GAFOR. It tells you whether it is flyable **now** and when the **next flight window** starts, and shows a 24-hour timeline with wind and cloud layers, METAR, TAF and the DWD aviation weather overview.
+
+![Dashboard (light theme)](https://raw.githubusercontent.com/chrisribal/ha-vfr-flight-weather/main/docs/dashboard.png)
+
+<details><summary>Dark theme</summary>
+
+![Dashboard (dark theme)](https://raw.githubusercontent.com/chrisribal/ha-vfr-flight-weather/main/docs/dashboard-dark.png)
+
+</details>
+
+*Screenshots with sample data. The dashboard follows your Home Assistant language (German or English notice) and theme.*
 
 ## Features
 
