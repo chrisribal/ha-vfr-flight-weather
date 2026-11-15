@@ -31,6 +31,19 @@ const NOW_INFO = {
 const DAY_TEXT = { gut: "Guter Flugtag", eingeschraenkt: "Eingeschränkt", schlecht: "Kein Flugwetter", vorbei: "Tag vorbei", keine_daten: "Keine Daten" };
 const DAY_LVL = { gut: 0, eingeschraenkt: 1, schlecht: 2 };
 
+const DISCLAIMER = {
+  de: {
+    title: "Nur zur Information – ersetzt keine Flugvorbereitung",
+    text: "Diese Anzeige ist eine Übersicht, kein Wetterbriefing. Bereite jeden Flug mit den amtlichen Quellen vor (Flugwetter, NOTAM, AIP). Modelle und automatische Bewertungen können falsch sein. Die Entscheidung trägt allein der verantwortliche Pilot.",
+    short: "Nur zur Information – ersetzt keine Flugvorbereitung.",
+  },
+  en: {
+    title: "For information only – does not replace your pre-flight preparation",
+    text: "This is an overview, not a weather briefing. Prepare every flight with official sources (aviation weather, NOTAM, AIP). Models and automated ratings can be wrong. The pilot in command alone decides whether to fly.",
+    short: "For information only – does not replace your pre-flight preparation.",
+  },
+};
+
 // ---------------------------------------------------------------- Hilfsfunktionen
 
 function fwEntities(hass, deviceId) {
@@ -188,6 +201,15 @@ class FlugwetterCard extends HTMLElement {
       };
       const order = view === "komplett" ? ["jetzt", "zeitstrahl", "wind", "meldungen", "dwd"] : [view];
       body = order.map((k) => parts[k]()).filter(Boolean).join(`<div class="divider"></div>`);
+    }
+    const lang = String(this._hass.locale?.language || this._hass.language || "de").startsWith("de") ? "de" : "en";
+    const d = DISCLAIMER[lang];
+    if (this._dev && jetzt) {
+      if (view === "jetzt" || view === "komplett") {
+        body = `<div class="disclaimer" role="note"><ha-icon icon="mdi:alert-outline"></ha-icon><div><b>${d.title}</b><div>${d.text}</div></div></div>` + body;
+      } else {
+        body += `<div class="disclaimer-short"><ha-icon icon="mdi:information-outline"></ha-icon>${d.short}</div>`;
+      }
     }
     const title = this._config.title ? `<h1 class="card-header">${esc(this._config.title)}</h1>` : "";
     this.shadowRoot.innerHTML = `<style>${FW_CSS}</style><ha-card>${title}<div class="content">${body}</div></ha-card>`;
@@ -564,6 +586,12 @@ const FW_CSS = `
   [data-more] { cursor: pointer; }
   .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; flex: none; }
 
+  .disclaimer { display: flex; gap: 12px; align-items: flex-start; padding: 12px; margin-bottom: 16px; border-radius: 8px; font-size: 13px; line-height: 1.45;
+    border-left: 4px solid var(--warning-color, #ffa600); background: color-mix(in srgb, var(--warning-color, #ffa600) 14%, transparent); }
+  .disclaimer ha-icon { color: var(--warning-color, #ffa600); flex: none; --mdc-icon-size: 22px; }
+  .disclaimer b { display: block; font-size: 14px; margin-bottom: 2px; }
+  .disclaimer-short { display: flex; align-items: center; gap: 6px; margin-top: 12px; font-size: 12px; color: var(--secondary-text-color); }
+  .disclaimer-short ha-icon { --mdc-icon-size: 16px; }
   .now-head { display: flex; align-items: center; gap: 12px; }
   .badge { width: 44px; height: 44px; border-radius: 50%; display: flex; align-items: center; justify-content: center; flex: none;
     background: color-mix(in srgb, var(--c) 20%, transparent); color: var(--c); }

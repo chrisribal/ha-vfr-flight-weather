@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Flugplatz hinzufügen",
-        "description": "ICAO-Code des Flugplatzes, z. B. EDAH oder EDBM.",
+        "description": "ICAO-Code des Flugplatzes, z. B. EDAH oder EDBM.\n\n**Nur zur Information:** Die Integration ersetzt keine Flugvorbereitung. Bereite jeden Flug mit den amtlichen Quellen vor; die Entscheidung trägt allein der verantwortliche Pilot.",
         "data": {
           "icao": "ICAO-Code"
         }

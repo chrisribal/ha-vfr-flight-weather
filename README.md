@@ -1,33 +1,36 @@
-# VFR Flight Weather für Home Assistant
+# VFR Flight Weather for Home Assistant
 
-Flugwetter-Ampel für Sichtflieger (VFR). Für jeden eingerichteten Flugplatz bewertet die Integration jede Stunde Wind, Böen, Seitenwind, Wolkenuntergrenze, Sicht, Niederschlag, Gewitter und den GAFOR des DWD. Sie zeigt, ob jetzt Flugwetter ist und wann das nächste Flugfenster beginnt. Dazu gibt es einen 24-Stunden-Zeitstrahl mit Wind und Wolkenschichten, METAR, TAF und die Flugwetterübersicht des DWD.
+> [!CAUTION]
+> **For information only. This integration does not replace your pre-flight preparation.**
+> It is a quick overview, not a weather briefing. Before every flight, prepare yourself as required by SERA and your national rules, using official sources (aviation weather services, NOTAMs, AIP). Forecast models and automated evaluations can be wrong. The pilot in command remains solely responsible for the decision to fly.
 
-> ⚠️ **Nur eine Orientierungshilfe.** Die Ampel ersetzt keine Flugvorbereitung nach SERA/LuftVO, kein Briefing und keinen Blick auf NOTAMs. Modelldaten können falsch sein.
+A flying-weather traffic light for VFR pilots. For every airfield you add, the integration rates each hour for wind, gusts, crosswind, cloud ceiling, visibility, precipitation, thunderstorms and the German GAFOR. It tells you whether it is flyable **now** and when the **next flight window** starts, and shows a 24-hour timeline with wind and cloud layers, METAR, TAF and the DWD aviation weather overview.
 
-## Funktionen
+## Features
 
-- Einrichtung über die Oberfläche: ICAO-Code eingeben, Platzdaten, nächste METAR-/TAF-Station und GAFOR-Gebiet auswählen
-- Mehrere Flugplätze parallel, jeder als eigenes Gerät
-- Persönliche Grenzwerte (gelb/rot) für Seitenwind, Wind, Böen, Wolken, Sicht und Niederschlag
-- Bewertung der laufenden Stunde aus dem aktuellen METAR, sonst aus der Modellvorhersage
-- Wolkenschichten (FEW/SCT/BKN/OVC) aus dem ICON-Modell
-- Dashboard-Strategie „VFR-Flugwetter“ im Dialog *Neues Dashboard → Community-Dashboards*
-- Karte `custom:vfr-flight-weather-card` mit den Ansichten `jetzt`, `zeitstrahl`, `wind`, `meldungen`, `dwd` oder `komplett`
-- Farben und Schriften aus dem aktiven Home-Assistant-Theme
+- Set up in the UI: enter an ICAO code, then confirm airfield data, nearest METAR/TAF station and GAFOR region
+- Several airfields at once, each as its own device
+- Your own limits (amber/red) for crosswind, wind, gusts, ceiling, visibility and precipitation
+- The current hour is rated from the latest METAR, later hours from the model forecast
+- Cloud layers (FEW/SCT/BKN/OVC) and ceiling from the DWD ICON model
+- Daytime = civil twilight (morning to evening civil twilight)
+- Dashboard strategy “VFR-Flugwetter” in *Add dashboard → Community dashboards*, adjustable later via the gear icon
+- Card `custom:vfr-flight-weather-card` with the views `jetzt` (now), `zeitstrahl` (timeline), `wind`, `meldungen` (reports), `dwd` or `komplett` (all)
+- Colours and fonts follow your active Home Assistant theme
 
-## Sensoren
+## Sensors
 
-| Sensor | Zustand | Wichtige Attribute |
+| Sensor | State | Useful attributes |
 |---|---|---|
-| Flugwetter jetzt | `fliegbar`, `eingeschraenkt`, `nicht_fliegbar`, `nacht` | `gruende`, `fliegbar_bis`, `naechstes_fenster_start`, `naechstes_fenster_ende`, `stunden` |
-| Nächstes Flugfenster | Zeitpunkt (Beginn des nächsten grünen Fensters) | `ende` |
-| Wolkenuntergrenze | ft über Platz, leer wenn keine | `bewoelkung` |
-| Flugtag heute / morgen | `gut`, `eingeschraenkt`, `schlecht`, `vorbei` | `fenster`, `gruende` |
-| METAR, TAF | Rohtext bzw. Station | Wind, Sicht, Wolken, QNH |
-| GAFOR | Code des laufenden Fensters | `fenster`, `uebersicht` (DWD-Text) |
-| Seitenwind aktuell | kt laut METAR | `gegenwind_kt`, `aktive_bahn` |
+| Flying weather now | `fliegbar` (flyable), `eingeschraenkt` (limited), `nicht_fliegbar` (not flyable), `nacht` (night) | `gruende` (reasons), `fliegbar_bis`, `naechstes_fenster_start`, `naechstes_fenster_ende`, `stunden` |
+| Next flight window | timestamp of the next green window | `ende` |
+| Cloud ceiling | ft above aerodrome, empty if none | `bewoelkung` |
+| Flying day today / tomorrow | `gut`, `eingeschraenkt`, `schlecht`, `vorbei` (day over) | `fenster`, `gruende` |
+| METAR, TAF | raw report / station | wind, visibility, clouds, QNH |
+| GAFOR | code of the current window | `fenster`, `uebersicht` (DWD text) |
+| Crosswind now | kt from METAR | `gegenwind_kt`, `aktive_bahn` |
 
-Beispiel-Automation: Push am Vorabend, wenn morgen ein guter Flugtag wird.
+Example automation: a notification in the evening when tomorrow looks good.
 
 ```yaml
 triggers:
@@ -38,57 +41,63 @@ conditions:
     entity_id: sensor.edbm_magdeburg_city_flugtag_morgen
     state: gut
 actions:
-  - action: notify.mobile_app_mein_handy
+  - action: notify.mobile_app_my_phone
     data:
-      title: "Morgen Flugwetter ✈️"
-      message: "{{ state_attr('sensor.edbm_magdeburg_city_flugtag_morgen', 'fenster') }}"
+      title: "Flying weather tomorrow ✈️"
+      message: >
+        {{ state_attr('sensor.edbm_magdeburg_city_flugtag_morgen', 'fenster') }}
+        – for information only, do your own pre-flight preparation.
 ```
 
 ## Installation
 
-1. **Einstellungen → Marketplace → Benutzerdefinierte Repositories**: `https://github.com/chrisribal/ha-vfr-flight-weather` als Integration hinzufügen und „VFR Flight Weather“ installieren. Home Assistant neu starten.
-2. **Einstellungen → Geräte & Dienste → Integration hinzufügen → VFR Flight Weather**.
-3. Dashboard anlegen: **Einstellungen → Dashboards → Dashboard hinzufügen → VFR-Flugwetter**.
+1. **Settings → Marketplace → Custom repositories**: add `https://github.com/chrisribal/ha-vfr-flight-weather` as an integration and install “VFR Flight Weather”. Restart Home Assistant.
+2. **Settings → Devices & services → Add integration → VFR Flight Weather**.
+3. Create the dashboard: **Settings → Dashboards → Add dashboard → VFR-Flugwetter**.
 
-## Bewertung
+## How it rates
 
-| Kriterium | Gelb ab (Standard) | Rot ab (Standard) |
+| Criterion | Amber from (default) | Red from (default) |
 |---|---|---|
-| Seitenwind | 8 kt | 15 kt |
+| Crosswind | 8 kt | 15 kt |
 | Wind | 15 kt | 20 kt |
-| Böen | 20 kt oder 10 kt über Mittelwind | 25 kt |
-| Wolkenuntergrenze (unterste BKN/OVC-Schicht) | unter 2500 ft AGL | unter 1500 ft AGL |
-| Sicht | unter 8 km | unter 5 km |
-| Niederschlag | 0,2 mm/h | 1,0 mm/h |
-| GAFOR | D | M oder X |
-| Wetter | leichter Schneefall, Regen (METAR) | Gewitter, Nebel, gefrierender Niederschlag, Schneefall |
+| Gusts | 20 kt or 10 kt above mean wind | 25 kt |
+| Ceiling (lowest BKN/OVC layer) | below 2500 ft AGL | below 1500 ft AGL |
+| Visibility | below 8 km | below 5 km |
+| Precipitation | 0.2 mm/h | 1.0 mm/h |
+| GAFOR | D | M or X |
+| Weather | light snow, rain (METAR) | thunderstorm, fog, freezing precipitation, snow |
 
-Als Flugtag zählt die Zeit zwischen Beginn und Ende der bürgerlichen Dämmerung (BDA–BDE). „Heute“ bewertet nur die verbleibenden Stunden. Ein Tag ist **gut**, wenn mindestens drei Stunden am Stück grün sind, **eingeschränkt**, wenn mindestens zwei Stunden am Stück nicht rot sind.
+“Today” only rates the remaining daytime hours. A day is **good** with at least three consecutive green hours and **limited** with at least two consecutive hours without red.
 
-## Datenquellen
+## Data sources
 
-- Modellvorhersage und Wolkenschichten: [Open-Meteo](https://open-meteo.com/) (DWD ICON)
-- METAR, TAF, Flugplatzdaten: [Aviation Weather Center](https://aviationweather.gov/data/api/)
-- GAFOR und Flugwetterübersicht: [Deutscher Wetterdienst](https://www.dwd.de/DE/fachnutzer/luftfahrt/teaser/luftsportberichte/luftsportberichte_node.html)
+- Model forecast and cloud layers: [Open-Meteo](https://open-meteo.com/) (DWD ICON)
+- METAR, TAF, airfield data: [Aviation Weather Center](https://aviationweather.gov/data/api/)
+- GAFOR and aviation weather overview (Germany): [Deutscher Wetterdienst](https://www.dwd.de/DE/fachnutzer/luftfahrt/teaser/luftsportberichte/luftsportberichte_node.html), shown unchanged
 
-Bitte beachte die Nutzungsbedingungen der Datenquellen. Die Produkte des DWD sind nur zur individuellen Flugvorbereitung bestimmt.
+GAFOR and the DWD overview are only available for Germany; everything else works worldwide. Please respect the terms of use of the data sources.
 
-## Entwicklung
+## Development
 
-Voraussetzungen: Python 3.13, ein Home Assistant mit der App „Advanced SSH & Web Terminal“ (SSH-Zugang mit Schlüssel).
+Requirements: Python 3.13 and a Home Assistant with the “Advanced SSH & Web Terminal” app (SSH access with a key).
 
 ```bash
 python -m venv .venv && . .venv/bin/activate
 pip install pytest-homeassistant-custom-component home-assistant-frontend
-pytest -q                      # Tests ohne Home Assistant
+pytest -q                      # tests without Home Assistant
 
-cp .env.example .env           # HA_SSH=root@homeassistant.local eintragen
-./deploy.sh                    # Integration ins eigene HA kopieren, Konfiguration prüfen, neu starten
-./deploy.sh --no-restart       # nur kopieren (z. B. reine Frontend-Änderungen, danach Browser neu laden)
+cp .env.example .env           # set HA_SSH=root@homeassistant.local
+./deploy.sh                    # copy to your Home Assistant, check the configuration, restart
+./deploy.sh --no-restart       # copy only (e.g. frontend changes, then reload the browser)
 ```
 
-In VS Code gibt es dieselben Schritte als Tasks (*Terminal → Run Task*): „Tests“, „Deploy to Home Assistant“ und „Deploy (ohne Neustart)“.
+In VS Code the same steps are available as tasks (*Terminal → Run Task*).
 
-## Lizenz
+## Disclaimer
+
+This project is provided “as is”, without any warranty. It is for information only and must never be used as the sole basis for a flight decision. Always carry out a complete pre-flight preparation with official sources.
+
+## License
 
 MIT

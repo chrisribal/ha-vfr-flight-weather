@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Add airfield",
-        "description": "ICAO code of the airfield, e.g. EDAH.",
+        "description": "ICAO code of the airfield, e.g. EDAH or EDBM.\n\n**For information only:** this integration does not replace your pre-flight preparation. Prepare every flight with official sources; the pilot in command alone decides whether to fly.",
         "data": {
           "icao": "ICAO code"
         }
