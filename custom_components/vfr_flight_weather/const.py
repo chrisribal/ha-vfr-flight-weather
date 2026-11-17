@@ -7,7 +7,7 @@ from typing import Any
 from datetime import timedelta
 
 DOMAIN = "vfr_flight_weather"
-VERSION = "0.2.4"
+VERSION = "0.2.5"
 
 # Konfiguration (config entry data)
 CONF_ICAO = "icao"

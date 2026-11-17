@@ -3,10 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import date, datetime
+from datetime import date, datetime, tzinfo
 import logging
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant
@@ -91,6 +90,17 @@ class FlugwetterCoordinator(DataUpdateCoordinator[FlugwetterData]):
         self._forecast_at: datetime | None = None
         self._gafor: tuple[date | None, GaforRegion | None] = (None, None)
         self._gafor_at: datetime | None = None
+        self._tz: tzinfo = dt_util.get_default_time_zone()
+        self._tz_name: str | None = None
+
+    async def _async_setup(self) -> None:
+        """Zeitzone einmalig auflösen (lädt die Zonendatei im Executor, nicht im Event-Loop)."""
+        await self._async_resolve_time_zone()
+
+    async def _async_resolve_time_zone(self) -> None:
+        name = self.hass.config.time_zone
+        self._tz = await dt_util.async_get_time_zone(name) or dt_util.get_default_time_zone()
+        self._tz_name = name
 
     @property
     def settings(self) -> dict[str, Any]:
@@ -163,7 +173,10 @@ class FlugwetterCoordinator(DataUpdateCoordinator[FlugwetterData]):
         data.gafor_date, data.gafor_region = self._gafor if region != GAFOR_NONE else (None, None)
 
         # Bewertung
-        tz = ZoneInfo(self.hass.config.time_zone)
+        if self._tz_name != self.hass.config.time_zone:
+            # Zeitzone wurde in Home Assistant geändert
+            await self._async_resolve_time_zone()
+        tz = self._tz
         local_now = dt_util.now()
         gafor_valid = data.gafor_region is not None and data.gafor_date == local_now.date()
         gafor_windows = data.gafor_region.windows if gafor_valid and data.gafor_region else []

@@ -8,10 +8,12 @@ also zwischen BDA und BDE), steht getrennt im Feld ``tag``.
 from __future__ import annotations
 
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timedelta, timezone, tzinfo
 import math
 from typing import Any
-from zoneinfo import ZoneInfo
+
+from astral import Observer
+from astral.sun import dawn, dusk
 
 from .const import (
     CONF_CEIL_LIMIT,
@@ -245,19 +247,16 @@ def describe_layers(layers: list[tuple[int, int]]) -> str:
     return " ".join(parts)
 
 
-def civil_twilight(lat: float, lon: float, day: date, tz: ZoneInfo) -> tuple[datetime, datetime] | None:
+def civil_twilight(lat: float, lon: float, day: date, tz: tzinfo) -> tuple[datetime, datetime] | None:
     """Beginn und Ende der bürgerlichen Dämmerung (BDA/BDE) – Grenzen des Flugtags."""
     try:
-        from astral import Observer
-        from astral.sun import dawn, dusk
-
         obs = Observer(latitude=lat, longitude=lon)
         return dawn(obs, day, tzinfo=tz), dusk(obs, day, tzinfo=tz)
     except Exception:  # noqa: BLE001 – Polarregionen o. ä.
         return None
 
 
-def _parse_local(value: str, tz: ZoneInfo) -> datetime:
+def _parse_local(value: str, tz: tzinfo) -> datetime:
     return datetime.fromisoformat(value).replace(tzinfo=tz)
 
 
@@ -348,7 +347,7 @@ def evaluate_hours(
     runway: float,
     gafor: list[GaforWindow],
     gafor_date: date | None,
-    tz: ZoneInfo,
+    tz: tzinfo,
     lat: float | None = None,
     lon: float | None = None,
     gafor_name: str = "",
@@ -590,7 +589,7 @@ def day_keys(now: datetime) -> tuple[str, str]:
     return today.isoformat(), (today + timedelta(days=1)).isoformat()
 
 
-def day_bounds_list(rows: list[HourRow], lat: float, lon: float, tz: ZoneInfo) -> list[dict[str, str]]:
+def day_bounds_list(rows: list[HourRow], lat: float, lon: float, tz: tzinfo) -> list[dict[str, str]]:
     """BDA/BDE je Vorhersagetag, für die Zeitleiste."""
     out = []
     for d in sorted({r.d for r in rows}):
